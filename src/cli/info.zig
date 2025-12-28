@@ -50,7 +50,7 @@ pub fn run(allocator: std.mem.Allocator, args: InfoArgs) !void {
 
     const file_size = wasm_bytes.len;
 
-    var backend = opa.WasmerBackend.init(allocator) catch |err| {
+    var backend = opa.Backend.init(allocator) catch |err| {
         writeError("error: failed to initialize backend: {}\n", .{err});
         return error.BackendInitFailed;
     };

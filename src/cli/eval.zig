@@ -5,7 +5,7 @@ const opa = @import("zig_opa_wasm");
 
 const Policy = opa.Policy;
 const Instance = opa.Instance;
-const WasmerBackend = opa.WasmerBackend;
+const Backend = opa.Backend;
 
 pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const stdout = std.fs.File.stdout();
@@ -108,7 +108,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     };
     defer if (!is_bundle) allocator.free(wasm_bytes);
 
-    var backend = try WasmerBackend.init(allocator);
+    var backend = try Backend.init(allocator);
     defer backend.deinit();
 
     var be = backend.asBackend();

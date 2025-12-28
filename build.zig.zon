@@ -1,6 +1,6 @@
 .{
     .name = .zig_opa_wasm,
-    .version = "0.0.4",
+    .version = "0.0.5",
     .fingerprint = 0x14457ed2e73dd11e,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
@@ -23,6 +23,10 @@
         .zig_humanize = .{
             .url = "https://github.com/burdzwastaken/zig-humanize/archive/refs/tags/v0.0.5.tar.gz",
             .hash = "humanize-0.0.5-xH2j9oHcAABixEpQnxZAi_btBp70H8-8OwkuUVM_XJ4e",
+        },
+        .zware = .{
+            .url = "https://github.com/burdzwastaken/zware/archive/refs/heads/master.tar.gz",
+            .hash = "zware-0.0.1-ZA7j6dLpBAAIiASxs8G9aOkUqRNDjEtBrblF5QvgoNVV",
         },
     },
     .paths = .{

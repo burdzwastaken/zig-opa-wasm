@@ -13,7 +13,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_opa_wasm = .{
-        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.4",
+        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.5",
         .hash = "...",
     },
 },
@@ -29,11 +29,22 @@ const opa = b.dependency("zig_opa_wasm", .{
 exe.root_module.addImport("opa", opa.module("opa"));
 ```
 
+## Build
+
+```bash
+# build with Wasmer (default)
+zig build
+
+# build with zware (pure Zig)
+zig build -Dbackend=zware
+
+# build with zware (wasm32-freestanding target)
+zig build -Dbackend=zware wasm
+```
+
 ## CLI
 
 ```bash
-zig build
-
 # evaluate a policy
 zig-out/bin/opa-zig eval -m policy.wasm -e "example/allow" -i '{"user":"admin"}'
 
@@ -153,8 +164,13 @@ wasm_backend.setLogCallback(struct {
 
 The library uses an abstract backend interface allowing different WASM runtimes to be swapped without changing application code.
 
-**Current backends:**
-- `WasmerBackend` - [Wasmer](https://github.com/zig-wasm/wasmer-zig-api) runtime (default)
+**Backends:**
+| Backend | Runtime | Use Case |
+|---------|---------|----------|
+| `WasmerBackend` | [Wasmer](https://github.com/zig-wasm/wasmer-zig-api) | Native builds, JIT compilation, best performance |
+| `ZwareBackend` | [zware](https://github.com/burdzwastaken/zware) | Pure Zig interpreter, wasm32-freestanding target |
+
+Select backend at build time with `-Dbackend=wasmer` (default) or `-Dbackend=zware`. The zware backend enables compiling zig-opa-wasm itself to WebAssembly (`wasm32-freestanding`). Select with `-Dbackend=zware wasm`.
 
 ## Supported Builtins
 

@@ -1,6 +1,7 @@
 //! OPA time parsing and manipulation builtins.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const epoch = std.time.epoch;
 const common = @import("common.zig");
 const Args = common.Args;
@@ -15,6 +16,7 @@ const ns_per_day = std.time.ns_per_day;
 const s_per_day = std.time.s_per_day;
 
 pub fn nowNs(_: std.mem.Allocator, _: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const ns = std.time.nanoTimestamp();
     return .{ .integer = @intCast(ns) };
 }

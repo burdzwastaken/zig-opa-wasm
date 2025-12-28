@@ -1,7 +1,7 @@
 const std = @import("std");
 const opa = @import("zig_opa_wasm");
 
-const WasmerBackend = opa.WasmerBackend;
+const Backend = opa.Backend;
 const Policy = opa.Policy;
 const Instance = opa.Instance;
 
@@ -56,7 +56,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
 fn runCompliance(allocator: std.mem.Allocator, opts: ComplianceOptions) !void {
     var buf: [1024]u8 = undefined;
 
-    var backend = WasmerBackend.init(allocator) catch |err| {
+    var backend = Backend.init(allocator) catch |err| {
         const msg = std.fmt.bufPrint(&buf, "error: failed to init backend: {}\n", .{err}) catch return;
         try stderr.writeAll(msg);
         return;
@@ -223,7 +223,7 @@ fn runCompliance(allocator: std.mem.Allocator, opts: ComplianceOptions) !void {
                 stderr.writeAll(msg) catch {};
             }
 
-            backend.opa_context.reset();
+            backend.clearAbort();
         }
     }
 

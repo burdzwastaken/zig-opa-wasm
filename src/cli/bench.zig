@@ -75,8 +75,9 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
         break :blk loaded_bundle.?.wasm;
     } else file_bytes;
 
-    var wasmer_backend = try opa.WasmerBackend.init(allocator);
-    var backend = wasmer_backend.asBackend();
+    var runtime_backend = try opa.Backend.init(allocator);
+    defer runtime_backend.deinit();
+    var backend = runtime_backend.asBackend();
 
     var policy = opa.Policy.load(allocator, &backend, wasm_bytes) catch |err| {
         var buf: [256]u8 = undefined;

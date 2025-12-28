@@ -1,16 +1,28 @@
 //! Wasmer backend implementation for the WASM runtime interface.
 
 const std = @import("std");
+const options = @import("options");
 const backend = @import("backend.zig");
-const wasmer = @import("wasmer");
 const builtins = @import("../builtins/builtins.zig");
+
+const is_wasmer = options.backend == .wasmer;
+const wasmer = if (is_wasmer) @import("wasmer") else struct {
+    pub const Memory = void;
+    pub const Engine = void;
+    pub const Store = void;
+    pub const Module = void;
+    pub const Instance = void;
+    pub const Function = void;
+    pub const Extern = void;
+    pub const Value = void;
+};
 
 pub const LogLevel = enum { none, err, warn, info, debug, trace };
 pub const LogCallback = *const fn (LogLevel, []const u8) void;
 
 /// Runtime context for OPA policy evaluation.
 pub const OpaContext = struct {
-    memory: ?*wasmer.Memory = null,
+    memory: if (is_wasmer) ?*wasmer.Memory else ?*anyopaque = null,
     builtins: ?*std.StringHashMapUnmanaged(u32) = null,
     aborted: bool = false,
     abort_message: ?[]const u8 = null,
@@ -68,8 +80,8 @@ pub const OpaContext = struct {
 
 /// The Wasmer-based WASM backend.
 pub const WasmerBackend = struct {
-    engine: *wasmer.Engine,
-    store: *wasmer.Store,
+    engine: if (is_wasmer) *wasmer.Engine else *anyopaque,
+    store: if (is_wasmer) *wasmer.Store else *anyopaque,
     allocator: std.mem.Allocator,
     opa_imports: ?OpaImports = null,
     opa_context: OpaContext = .{},
@@ -303,7 +315,8 @@ fn memoryGrow(ptr: *anyopaque, pages: u32) backend.Error!void {
 }
 
 /// OPA import functions and shared memory for WASM instantiation.
-const OpaImports = struct {
+/// Wasmer requires explicit import structs; zware registers imports directly with the store.
+const OpaImports = if (is_wasmer) struct {
     opa_abort: *wasmer.Func,
     opa_builtin0: *wasmer.Func,
     opa_builtin1: *wasmer.Func,
@@ -375,7 +388,7 @@ const OpaImports = struct {
         };
         return .{ .size = self.extern_cache.len, .data = @ptrCast(&self.extern_cache) };
     }
-};
+} else void;
 
 fn opaAbortCallback(env: ?*anyopaque, args: ?*const wasmer.wasm.ValVec, _: ?*wasmer.wasm.ValVec) callconv(.c) ?*wasmer.wasm.Trap {
     const ctx = getContext(env) orelse return null;

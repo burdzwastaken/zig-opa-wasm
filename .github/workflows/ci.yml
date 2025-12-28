@@ -36,7 +36,13 @@ jobs:
       - name: Check formatting
         run: zig fmt --check src/ examples/
 
-      - name: Build
+      - name: Build (zware native)
+        run: zig build -Dbackend=zware -Doptimize=ReleaseSafe
+
+      - name: Build (zware wasm32)
+        run: zig build -Dbackend=zware wasm -Doptimize=ReleaseSmall
+
+      - name: Build (wasmer)
         run: zig build -Doptimize=ReleaseSafe
 
       - name: Run tests

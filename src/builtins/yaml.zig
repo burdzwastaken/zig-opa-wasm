@@ -1,12 +1,14 @@
 //! OPA YAML parsing and serialization builtins.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const common = @import("common.zig");
 const Args = common.Args;
 const BuiltinError = common.BuiltinError;
-const yaml = @import("yaml");
+const yaml = if (builtin.os.tag == .freestanding) {} else @import("yaml");
 
 pub fn isValid(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const str = try args.getString(0);
     var doc = yaml.Yaml{ .source = str };
     defer doc.deinit(allocator);
@@ -15,6 +17,7 @@ pub fn isValid(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.V
 }
 
 pub fn unmarshal(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const str = try args.getString(0);
     var doc = yaml.Yaml{ .source = str };
     defer doc.deinit(allocator);
