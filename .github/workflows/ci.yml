@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint-build-test:
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        zig-version: ['0.15.2']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ matrix.zig-version }}
+
+      - name: Install Wasmer
+        run: |
+          curl https://get.wasmer.io -sSfL | sh
+          echo "$HOME/.wasmer/bin" >> $GITHUB_PATH
+          echo "WASMER_DIR=$HOME/.wasmer" >> $GITHUB_ENV
+
+      - name: Install OPA
+        uses: open-policy-agent/setup-opa@v2
+
+      - name: Check formatting
+        run: zig fmt --check src/ examples/
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Run tests
+        run: zig build test

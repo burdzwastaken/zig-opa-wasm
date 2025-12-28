@@ -1,0 +1,35 @@
+.{
+    .name = .zig_opa_wasm,
+    .version = "0.0.1",
+    .fingerprint = 0x14457ed2e73dd11e,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{
+        .wasmer_zig_api = .{
+            .url = "https://github.com/burdzwastaken/wasmer-zig-api/archive/refs/heads/host-imports.tar.gz",
+            .hash = "wasmer_zig_api-0.3.0-E2pGyl2uAABds7r5Nq65yHPuh19_Vrj5B7koSMBQPs7Y",
+        },
+        .mvzr = .{
+            .url = "https://github.com/mnemnion/mvzr/archive/refs/tags/v0.3.7.tar.gz",
+            .hash = "mvzr-0.3.7-ZSOky5FtAQB2VrFQPNbXHQCFJxWTMAYEK7ljYEaMR6jt",
+        },
+        .zig_yaml = .{
+            .url = "https://github.com/kubkon/zig-yaml/archive/a6c2cd8760bf45c49b17a3f6259c4dfe3ded528e.tar.gz",
+            .hash = "zig_yaml-0.2.0-C1161pmrAgDnipDTh_4v4RQD27XN5GNaVlzzvlXf1jfW",
+        },
+        .zul = .{
+            .url = "https://github.com/karlseguin/zul/archive/refs/heads/master.tar.gz",
+            .hash = "zul-0.0.0-1oDot9yRBwDA_ovd6GC1M_ViW3LarywMaGrH6vcuEjqv",
+        },
+        .zig_humanize = .{
+            .url = "https://github.com/burdzwastaken/zig-humanize/archive/refs/tags/v0.0.5.tar.gz",
+            .hash = "humanize-0.0.5-xH2j9oHcAABixEpQnxZAi_btBp70H8-8OwkuUVM_XJ4e",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+        "README.md",
+    },
+}

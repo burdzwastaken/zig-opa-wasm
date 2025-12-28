@@ -1,0 +1,421 @@
+//! OPA WASM instance management.
+
+const std = @import("std");
+const backend = @import("backends/backend.zig");
+const wasmer = @import("backends/wasmer.zig");
+const Policy = @import("policy.zig").Policy;
+const MemoryManager = @import("memory/manager.zig").MemoryManager;
+
+/// A live OPA WASM instance ready for policy evaluation.
+pub const Instance = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
+    policy: *const Policy,
+    wasm_instance: backend.Instance,
+    memory: backend.Memory,
+    memory_manager: MemoryManager,
+    builtins: std.StringHashMapUnmanaged(u32) = .{},
+    entrypoints: std.StringHashMapUnmanaged(u32) = .{},
+    data_addr: ?u32 = null,
+    data_heap_ptr: ?u32 = null,
+
+    pub const CreateError = error{
+        InstantiationFailed,
+        MemoryNotFound,
+        MissingExport,
+        OutOfMemory,
+    };
+
+    /// Creates a new instance from a compiled policy.
+    pub fn create(allocator: std.mem.Allocator, policy: *const Policy) CreateError!Self {
+        const wasm_instance = policy.module.instantiate(.{}) catch return error.InstantiationFailed;
+        const memory = wasm_instance.getMemory("memory") orelse return error.MemoryNotFound;
+
+        var memory_manager = MemoryManager.init(allocator, memory);
+        memory_manager.cacheOpsFunctions(wasm_instance);
+
+        var self = Self{
+            .allocator = allocator,
+            .policy = policy,
+            .wasm_instance = wasm_instance,
+            .memory = memory,
+            .memory_manager = memory_manager,
+        };
+
+        try self.parseMetadata();
+        return self;
+    }
+
+    fn parseMetadata(self: *Self) CreateError!void {
+        try self.parseBuiltins();
+        try self.parseEntrypoints();
+    }
+
+    fn parseBuiltins(self: *Self) CreateError!void {
+        const opa_builtins = self.wasm_instance.getFunc("builtins") orelse return;
+        const opa_json_dump = self.wasm_instance.getFunc("opa_json_dump") orelse return;
+
+        const builtins_value_addr: u32 = @bitCast(opa_builtins.call0() catch return error.InstantiationFailed);
+        if (builtins_value_addr == 0) return;
+
+        const json_str_addr: u32 = @bitCast(opa_json_dump.call1(@bitCast(builtins_value_addr)) catch return error.InstantiationFailed);
+        if (json_str_addr == 0) return;
+
+        const json_str = self.memory_manager.readCString(json_str_addr) catch return error.InstantiationFailed;
+
+        var parsed = std.json.parseFromSlice(std.json.Value, self.allocator, json_str, .{}) catch return error.InstantiationFailed;
+        defer parsed.deinit();
+
+        if (parsed.value != .object) return;
+
+        var iter = parsed.value.object.iterator();
+        while (iter.next()) |entry| {
+            const name = self.allocator.dupe(u8, entry.key_ptr.*) catch return error.OutOfMemory;
+            const id: u32 = switch (entry.value_ptr.*) {
+                .integer => |i| @intCast(i),
+                else => continue,
+            };
+            self.builtins.put(self.allocator, name, id) catch return error.OutOfMemory;
+        }
+    }
+
+    fn parseEntrypoints(self: *Self) CreateError!void {
+        const opa_entrypoints = self.wasm_instance.getFunc("entrypoints") orelse return;
+        const opa_json_dump = self.wasm_instance.getFunc("opa_json_dump") orelse return;
+
+        const entrypoints_value_addr: u32 = @bitCast(opa_entrypoints.call0() catch return error.InstantiationFailed);
+        if (entrypoints_value_addr == 0) return;
+
+        const json_str_addr: u32 = @bitCast(opa_json_dump.call1(@bitCast(entrypoints_value_addr)) catch return error.InstantiationFailed);
+        if (json_str_addr == 0) return;
+
+        const json_str = self.memory_manager.readCString(json_str_addr) catch return error.InstantiationFailed;
+
+        var parsed = std.json.parseFromSlice(std.json.Value, self.allocator, json_str, .{}) catch return error.InstantiationFailed;
+        defer parsed.deinit();
+
+        if (parsed.value != .object) return;
+
+        var iter = parsed.value.object.iterator();
+        while (iter.next()) |entry| {
+            const name = self.allocator.dupe(u8, entry.key_ptr.*) catch return error.OutOfMemory;
+            const id: u32 = switch (entry.value_ptr.*) {
+                .integer => |i| @intCast(i),
+                else => continue,
+            };
+            self.entrypoints.put(self.allocator, name, id) catch return error.OutOfMemory;
+        }
+    }
+
+    pub fn deinit(self: *Self) void {
+        var bi_iter = self.builtins.keyIterator();
+        while (bi_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.builtins.deinit(self.allocator);
+
+        var ep_iter = self.entrypoints.keyIterator();
+        while (ep_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.entrypoints.deinit(self.allocator);
+
+        self.wasm_instance.deinit();
+    }
+
+    /// Sets the base data document (persists across evaluations).
+    pub fn setData(self: *Self, data_json: []const u8) !void {
+        if (self.data_heap_ptr) |ptr| {
+            try self.memory_manager.restoreHeapState(ptr);
+        }
+
+        const data_addr = try self.memory_manager.writeAndParseJson(data_json);
+        self.data_addr = data_addr;
+        self.data_heap_ptr = try self.memory_manager.saveHeapState();
+    }
+
+    /// Sets the base data document from a Zig value (serializes to JSON).
+    pub fn setDataValue(self: *Self, value: anytype) !void {
+        var buf = std.ArrayList(u8).init(self.allocator);
+        defer buf.deinit();
+        try std.json.stringify(value, .{}, buf.writer());
+        try self.setData(buf.items);
+    }
+
+    /// Evaluates a policy entrypoint with the given JSON input.
+    /// Returns the result as a JSON string owned by the caller.
+    pub fn evaluate(self: *Self, entrypoint: []const u8, input_json: []const u8) ![]const u8 {
+        const entrypoint_id = self.entrypoints.get(entrypoint) orelse {
+            self.logError("unknown entrypoint: {s}", .{entrypoint});
+            return error.UnknownEntrypoint;
+        };
+        self.logDebug("eval {s} (id={})", .{ entrypoint, entrypoint_id });
+        return self.evaluateById(entrypoint_id, input_json);
+    }
+
+    fn logDebug(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        const wb = self.getWasmerBackend();
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
+        wb.opa_context.log(.debug, msg);
+    }
+
+    fn logError(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        const wb = self.getWasmerBackend();
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
+        wb.opa_context.log(.err, msg);
+    }
+
+    /// Looks up a builtin function name by its numeric ID.
+    pub fn getBuiltinName(self: *const Self, id: u32) ?[]const u8 {
+        var iter = self.builtins.iterator();
+        while (iter.next()) |entry| {
+            if (entry.value_ptr.* == id) return entry.key_ptr.*;
+        }
+        return null;
+    }
+
+    /// Evaluates a policy by entrypoint ID with the given JSON input.
+    pub fn evaluateById(self: *Self, entrypoint_id: u32, input_json: []const u8) ![]const u8 {
+        const saved_heap = self.data_heap_ptr orelse try self.memory_manager.saveHeapState();
+        defer self.memory_manager.restoreHeapState(saved_heap) catch {};
+
+        const opa_eval_ctx_new = self.wasm_instance.getFunc("opa_eval_ctx_new") orelse return error.MissingExport;
+        const opa_eval_ctx_set_input = self.wasm_instance.getFunc("opa_eval_ctx_set_input") orelse return error.MissingExport;
+        const opa_eval_ctx_set_data = self.wasm_instance.getFunc("opa_eval_ctx_set_data") orelse return error.MissingExport;
+        const opa_eval_ctx_set_entrypoint = self.wasm_instance.getFunc("opa_eval_ctx_set_entrypoint") orelse return error.MissingExport;
+        const opa_eval_ctx_get_result = self.wasm_instance.getFunc("opa_eval_ctx_get_result") orelse return error.MissingExport;
+        const eval_fn = self.wasm_instance.getFunc("eval") orelse return error.MissingExport;
+
+        const ctx_addr = opa_eval_ctx_new.call0() catch return error.EvalFailed;
+        const input_addr = try self.memory_manager.writeAndParseJson(input_json);
+        opa_eval_ctx_set_input.call2v(@bitCast(ctx_addr), @bitCast(input_addr)) catch return error.EvalFailed;
+
+        if (self.data_addr) |data| {
+            opa_eval_ctx_set_data.call2v(@bitCast(ctx_addr), @bitCast(data)) catch return error.EvalFailed;
+        }
+
+        opa_eval_ctx_set_entrypoint.call2v(@bitCast(ctx_addr), @bitCast(entrypoint_id)) catch return error.EvalFailed;
+        _ = eval_fn.call1(@bitCast(ctx_addr)) catch return error.EvalFailed;
+
+        const result_addr: u32 = @bitCast(opa_eval_ctx_get_result.call1(@bitCast(ctx_addr)) catch return error.EvalFailed);
+        return self.memory_manager.dumpToJson(result_addr);
+    }
+
+    /// Evaluates a policy with a Zig value as input and parses the result into a Zig type.
+    pub fn evaluateTyped(self: *Self, comptime Result: type, entrypoint: []const u8, input: anytype) !Result {
+        const input_json = try self.serializeArg(input);
+        defer self.allocator.free(input_json);
+        const result_json = try self.evaluate(entrypoint, input_json);
+        defer self.allocator.free(result_json);
+        return self.deserializeResult(Result, result_json);
+    }
+
+    /// Serializes a Zig value to JSON for use as input.
+    pub fn serializeArg(self: *Self, value: anytype) ![]const u8 {
+        return std.json.Stringify.valueAlloc(self.allocator, value, .{});
+    }
+
+    /// Deserializes a JSON string into a Zig type.
+    pub fn deserializeResult(self: *Self, comptime T: type, json: []const u8) !T {
+        const parsed = try std.json.parseFromSlice(T, self.allocator, json, .{});
+        defer parsed.deinit();
+        return parsed.value;
+    }
+
+    pub const Error = error{
+        UnknownEntrypoint,
+        MissingExport,
+        EvalFailed,
+        OutOfMemory,
+        WriteError,
+        JsonParseError,
+    } || MemoryManager.Error;
+
+    pub fn wasAborted(self: *Self) bool {
+        return self.getWasmerBackend().wasAborted();
+    }
+
+    pub fn getAbortMessage(self: *Self) ?[]const u8 {
+        return self.getWasmerBackend().getAbortMessage();
+    }
+
+    pub fn clearAbort(self: *Self) void {
+        self.getWasmerBackend().clearAbort();
+    }
+
+    fn getWasmerBackend(self: *Self) *wasmer.WasmerBackend {
+        return @ptrCast(@alignCast(self.policy.module.backend_ptr));
+    }
+};
+
+/// Thread-safe pool of reusable instances for high-throughput scenarios.
+pub const InstancePool = struct {
+    const Self = @This();
+
+    policy: *const Policy,
+    allocator: std.mem.Allocator,
+    available: std.ArrayList(*Instance),
+    mutex: std.Thread.Mutex,
+    max_size: usize,
+
+    pub fn init(allocator: std.mem.Allocator, policy: *const Policy, max_size: usize) Self {
+        return .{
+            .policy = policy,
+            .allocator = allocator,
+            .available = .empty,
+            .mutex = .{},
+            .max_size = max_size,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.available.items) |inst| {
+            inst.deinit();
+            self.allocator.destroy(inst);
+        }
+        self.available.deinit(self.allocator);
+    }
+
+    /// Acquire an instance from the pool or create a new one if empty.
+    pub fn acquire(self: *Self) !*Instance {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.available.pop()) |inst| {
+            return inst;
+        }
+
+        const inst = try self.allocator.create(Instance);
+        inst.* = try Instance.create(self.allocator, self.policy);
+        return inst;
+    }
+
+    /// Release an instance back to the pool for reuse.
+    pub fn release(self: *Self, inst: *Instance) void {
+        if (inst.data_heap_ptr) |ptr| {
+            inst.memory_manager.setHeapPtr(ptr) catch {};
+        }
+
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.available.items.len < self.max_size) {
+            self.available.append(self.allocator, inst) catch {
+                inst.deinit();
+                self.allocator.destroy(inst);
+            };
+        } else {
+            inst.deinit();
+            self.allocator.destroy(inst);
+        }
+    }
+};
+
+const testing = std.testing;
+const WasmerBackend = @import("backends/wasmer.zig").WasmerBackend;
+
+test "instantiate OPA policy module" {
+    const wasm_bytes = @embedFile("test_example_wasm");
+    var wasmer_backend = try WasmerBackend.init(testing.allocator);
+    defer wasmer_backend.deinit();
+
+    var b = wasmer_backend.asBackend();
+    var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
+    defer policy.deinit();
+
+    var inst = try Instance.create(testing.allocator, &policy);
+    defer inst.deinit();
+
+    try testing.expect(inst.entrypoints.count() > 0);
+}
+
+test "evaluate policy - admin allowed" {
+    const wasm_bytes = @embedFile("test_example_wasm");
+    var wasmer_backend = try WasmerBackend.init(testing.allocator);
+    defer wasmer_backend.deinit();
+
+    var b = wasmer_backend.asBackend();
+    var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
+    defer policy.deinit();
+
+    var inst = try Instance.create(testing.allocator, &policy);
+    defer inst.deinit();
+
+    const result = try inst.evaluate("example/allow", "{\"user\": \"admin\"}");
+    defer testing.allocator.free(result);
+
+    try testing.expectEqualStrings("[{\"result\":true}]", result);
+}
+
+test "evaluate policy - guest denied" {
+    const wasm_bytes = @embedFile("test_example_wasm");
+    var wasmer_backend = try WasmerBackend.init(testing.allocator);
+    defer wasmer_backend.deinit();
+
+    var b = wasmer_backend.asBackend();
+    var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
+    defer policy.deinit();
+
+    var inst = try Instance.create(testing.allocator, &policy);
+    defer inst.deinit();
+
+    const result = try inst.evaluate("example/allow", "{\"user\": \"guest\"}");
+    defer testing.allocator.free(result);
+
+    try testing.expectEqualStrings("[{\"result\":false}]", result);
+}
+
+test "policy with builtins - sprintf" {
+    const wasm_bytes = @embedFile("test_builtin_wasm");
+    var wasmer_backend = try WasmerBackend.init(testing.allocator);
+    defer wasmer_backend.deinit();
+
+    var b = wasmer_backend.asBackend();
+    var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
+    defer policy.deinit();
+
+    var inst = try Instance.create(testing.allocator, &policy);
+    defer inst.deinit();
+
+    try testing.expect(inst.builtins.count() > 0);
+
+    const result = inst.evaluate("builtin_test/allow", "{\"name\": \"alice\", \"role\": \"admin\", \"email\": \"alice@example.com\", \"roles\": [\"admin\", \"user\"], \"first_name\": \"Alice\", \"last_name\": \"Smith\"}");
+
+    if (result) |res| {
+        defer testing.allocator.free(res);
+        try testing.expectEqualStrings("[{\"result\":true}]", res);
+    } else |err| {
+        if (inst.wasAborted()) {
+            std.debug.print("Policy aborted: {s}\n", .{inst.getAbortMessage() orelse "unknown"});
+        }
+        return err;
+    }
+}
+
+test "instance pool acquire and release" {
+    const wasm_bytes = @embedFile("test_example_wasm");
+    var wasmer_backend = try WasmerBackend.init(testing.allocator);
+    defer wasmer_backend.deinit();
+
+    var b = wasmer_backend.asBackend();
+    var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
+    defer policy.deinit();
+
+    var pool = InstancePool.init(testing.allocator, &policy, 2);
+    defer pool.deinit();
+
+    const inst1 = try pool.acquire();
+    const inst2 = try pool.acquire();
+
+    try testing.expect(inst1 != inst2);
+
+    pool.release(inst1);
+    const inst3 = try pool.acquire();
+    try testing.expect(inst1 == inst3);
+
+    pool.release(inst2);
+    pool.release(inst3);
+}
