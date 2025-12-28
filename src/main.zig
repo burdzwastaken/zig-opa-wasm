@@ -4,6 +4,7 @@ const std = @import("std");
 const info = @import("cli/info.zig");
 const eval_cmd = @import("cli/eval.zig");
 const bench_cmd = @import("cli/bench.zig");
+const compliance_cmd = @import("cli/compliance.zig");
 
 const stdout = std.fs.File.stdout();
 const stderr = std.fs.File.stderr();
@@ -39,6 +40,8 @@ pub fn main() !void {
         try runEvalCommand(allocator, args[2..]);
     } else if (std.mem.eql(u8, cmd, "bench")) {
         try runBenchCommand(allocator, args[2..]);
+    } else if (std.mem.eql(u8, cmd, "compliance")) {
+        try runComplianceCommand(allocator, args[2..]);
     } else {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "error: unknown command '{s}'\n\n", .{cmd}) catch unreachable;
@@ -86,6 +89,17 @@ fn runBenchCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
     try bench_cmd.run(allocator, args);
 }
 
+fn runComplianceCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len > 0) {
+        const arg = args[0];
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            try compliance_cmd.printUsage();
+            return;
+        }
+    }
+    try compliance_cmd.run(allocator, args);
+}
+
 fn printUsage() !void {
     try stdout.writeAll(
         \\opa-zig - OPA WebAssembly Policy Evaluator
@@ -94,9 +108,10 @@ fn printUsage() !void {
         \\    opa-zig <COMMAND> [OPTIONS]
         \\
         \\COMMANDS:
-        \\    info      Inspect a WASM module (ABI version, entrypoints, builtins)
-        \\    eval      Evaluate a policy
-        \\    bench     Benchmark policy evaluation
+        \\    info        Inspect a WASM module (ABI version, entrypoints, builtins)
+        \\    eval        Evaluate a policy
+        \\    bench       Benchmark policy evaluation
+        \\    compliance  Run OPA WASM compliance tests
         \\
         \\OPTIONS:
         \\    -h, --help       Show this help message

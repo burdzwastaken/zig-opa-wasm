@@ -39,6 +39,7 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = [
+            pkgs.go
             pkgs.open-policy-agent
             pkgs.zig
             pkgs.zls
@@ -50,6 +51,7 @@
           shellHook = ''
             echo "zig-opa-wasm development environment"
             echo ""
+            echo "  go:     $(go version)"
             echo "  opa:    $(opa version | grep '^Version:' | cut -d' ' -f2)"
             echo "  wasmer: $(wasmer --version 2>/dev/null | cut -d' ' -f2 || echo 'binary')"
             echo "  zig:    $(zig version)"

@@ -41,3 +41,26 @@ jobs:
 
       - name: Run tests
         run: zig build test
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tests/compliance/go.mod
+          cache-dependency-path: tests/compliance/go.sum
+
+      - name: Download OPA test assets
+        run: |
+          mkdir -p tests/compliance/assets
+          curl -sL https://github.com/open-policy-agent/opa/archive/refs/heads/main.tar.gz | \
+            tar -xz -C /tmp
+          mv /tmp/opa-main/v1/test/wasm/assets/* tests/compliance/assets/
+
+      - name: Generate compliance test fixtures
+        run: |
+          cd tests/compliance
+          go tool wasm-rego-testgen --input-dir assets --output testcases.tar.gz --runner /dev/null
+          tar -xzf testcases.tar.gz
+          rm -f testcases.tar.gz test.js
+
+      - name: Run compliance tests
+        run: ./zig-out/bin/opa-zig compliance --max-failures 20

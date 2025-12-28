@@ -2,3 +2,9 @@
 zig-out/
 *.o
 .direnv
+.manifest
+data.json
+policy.wasm
+tests/compliance/assets/
+tests/compliance/*.json
+tests/compliance/testcases.tar.gz
