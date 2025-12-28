@@ -179,6 +179,14 @@ pub const Instance = struct {
 
     /// Evaluates a policy by entrypoint ID with the given JSON input.
     pub fn evaluateById(self: *Self, entrypoint_id: u32, input_json: []const u8) ![]const u8 {
+        const wasmer_backend = self.getWasmerBackend();
+        wasmer_backend.setBuiltins(&self.builtins);
+        wasmer_backend.setOpaFunctions(
+            self.memory_manager.opa_malloc_fn,
+            self.memory_manager.opa_json_parse_fn,
+            self.memory_manager.opa_json_dump_fn,
+        );
+
         const saved_heap = self.data_heap_ptr orelse try self.memory_manager.saveHeapState();
         defer self.memory_manager.restoreHeapState(saved_heap) catch {};
 
@@ -418,4 +426,31 @@ test "instance pool acquire and release" {
 
     pool.release(inst2);
     pool.release(inst3);
+}
+
+// Regression test: OpaContext must have builtins and WASM functions connected for custom builtins to work.
+test "builtins are connected to backend context" {
+    const wasm_bytes = @embedFile("test_builtin_wasm");
+    var wasmer_backend = try WasmerBackend.init(testing.allocator);
+    defer wasmer_backend.deinit();
+
+    var b = wasmer_backend.asBackend();
+    var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
+    defer policy.deinit();
+
+    var inst = try Instance.create(testing.allocator, &policy);
+    defer inst.deinit();
+
+    try testing.expect(inst.builtins.count() > 0);
+
+    const result = inst.evaluate("builtin_test/allow", "{}");
+    if (result) |res| {
+        defer testing.allocator.free(res);
+        try testing.expect(res.len > 0);
+    } else |_| {}
+
+    try testing.expect(wasmer_backend.opa_context.builtins != null);
+    try testing.expect(wasmer_backend.opa_context.json_dump_fn != null);
+    try testing.expect(wasmer_backend.opa_context.json_parse_fn != null);
+    try testing.expect(wasmer_backend.opa_context.malloc_fn != null);
 }

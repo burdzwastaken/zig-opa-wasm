@@ -63,4 +63,4 @@ jobs:
           rm -f testcases.tar.gz test.js
 
       - name: Run compliance tests
-        run: ./zig-out/bin/opa-zig compliance --max-failures 20
+        run: ./zig-out/bin/opa-zig compliance

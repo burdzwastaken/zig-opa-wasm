@@ -138,6 +138,22 @@ fn runCompliance(allocator: std.mem.Allocator, opts: ComplianceOptions) !void {
             };
             defer instance.deinit();
 
+            if (case_obj.get("data")) |data_val| {
+                const data_str = std.json.Stringify.valueAlloc(allocator, data_val, .{}) catch {
+                    skipped += 1;
+                    continue;
+                };
+                defer allocator.free(data_str);
+                instance.setData(data_str) catch {
+                    if (opts.verbose) {
+                        const msg = std.fmt.bufPrint(&buf, "SKIP {s}/{s}: setData failed\n", .{ entry.name, note }) catch continue;
+                        stderr.writeAll(msg) catch {};
+                    }
+                    skipped += 1;
+                    continue;
+                };
+            }
+
             const input_str = if (case_obj.get("input")) |input_val|
                 std.json.Stringify.valueAlloc(allocator, input_val, .{}) catch {
                     skipped += 1;
@@ -147,17 +163,36 @@ fn runCompliance(allocator: std.mem.Allocator, opts: ComplianceOptions) !void {
                 "{}";
             defer if (case_obj.get("input") != null) allocator.free(input_str);
 
+            const want_error = case_obj.get("want_error") != null;
+
             const result = instance.evaluate("eval", input_str) catch {
-                if (opts.verbose) {
-                    const msg = std.fmt.bufPrint(&buf, "SKIP {s}/{s}: evaluation failed\n", .{ entry.name, note }) catch continue;
-                    stderr.writeAll(msg) catch {};
+                if (want_error) {
+                    passed += 1;
+                    if (opts.verbose) {
+                        const msg = std.fmt.bufPrint(&buf, "PASS {s}/{s} (expected error)\n", .{ entry.name, note }) catch continue;
+                        stdout.writeAll(msg) catch {};
+                    }
+                } else {
+                    if (opts.verbose) {
+                        const msg = std.fmt.bufPrint(&buf, "SKIP {s}/{s}: evaluation failed\n", .{ entry.name, note }) catch continue;
+                        stderr.writeAll(msg) catch {};
+                    }
+                    skipped += 1;
                 }
-                skipped += 1;
                 continue;
             };
             defer allocator.free(result);
 
-            const want_defined = if (case_obj.get("want_defined")) |wd| wd.bool else true;
+            const want_result = case_obj.get("want_result");
+            const want_defined = if (case_obj.get("want_defined")) |wd|
+                wd.bool
+            else if (want_result) |wr|
+                switch (wr) {
+                    .array => |arr| arr.items.len > 0,
+                    else => true,
+                }
+            else
+                true;
 
             const result_parsed = std.json.parseFromSlice(std.json.Value, allocator, result, .{}) catch {
                 if (want_defined) {
@@ -187,6 +222,8 @@ fn runCompliance(allocator: std.mem.Allocator, opts: ComplianceOptions) !void {
                 const msg = std.fmt.bufPrint(&buf, "FAIL {s}/{s}: want_defined={}, got_defined={}\n", .{ entry.name, note, want_defined, is_defined }) catch continue;
                 stderr.writeAll(msg) catch {};
             }
+
+            backend.opa_context.reset();
         }
     }
 

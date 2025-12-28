@@ -11,13 +11,13 @@ pub const LogCallback = *const fn (LogLevel, []const u8) void;
 /// Runtime context for OPA policy evaluation.
 pub const OpaContext = struct {
     memory: ?*wasmer.Memory = null,
-    builtins: ?*std.StringHashMap(i32) = null,
+    builtins: ?*std.StringHashMapUnmanaged(u32) = null,
     aborted: bool = false,
     abort_message: ?[]const u8 = null,
     allocator: ?std.mem.Allocator = null,
-    json_dump_fn: ?*wasmer.wasm.Func = null,
-    json_parse_fn: ?*wasmer.wasm.Func = null,
-    malloc_fn: ?*wasmer.wasm.Func = null,
+    json_dump_fn: ?backend.Func = null,
+    json_parse_fn: ?backend.Func = null,
+    malloc_fn: ?backend.Func = null,
     log_callback: ?LogCallback = null,
     log_level: LogLevel = .none,
 
@@ -27,7 +27,7 @@ pub const OpaContext = struct {
         }
     }
 
-    pub fn getBuiltinName(self: *const OpaContext, id: i32) ?[]const u8 {
+    pub fn getBuiltinName(self: *const OpaContext, id: u32) ?[]const u8 {
         const map = self.builtins orelse return null;
         var it = map.iterator();
         while (it.next()) |entry| {
@@ -56,6 +56,9 @@ pub const OpaContext = struct {
                 while (end < d.len and d[end] != 0) : (end += 1) {}
                 const msg = d[uaddr..end];
                 if (self.allocator) |alloc| {
+                    if (self.abort_message) |old_msg| {
+                        alloc.free(old_msg);
+                    }
                     self.abort_message = alloc.dupe(u8, msg) catch null;
                 }
             }
@@ -109,6 +112,16 @@ pub const WasmerBackend = struct {
 
     pub fn clearAbort(self: *WasmerBackend) void {
         self.opa_context.reset();
+    }
+
+    pub fn setBuiltins(self: *WasmerBackend, builtins_ptr: *std.StringHashMapUnmanaged(u32)) void {
+        self.opa_context.builtins = builtins_ptr;
+    }
+
+    pub fn setOpaFunctions(self: *WasmerBackend, malloc_fn: ?backend.Func, json_parse_fn: ?backend.Func, json_dump_fn: ?backend.Func) void {
+        self.opa_context.malloc_fn = malloc_fn;
+        self.opa_context.json_parse_fn = json_parse_fn;
+        self.opa_context.json_dump_fn = json_dump_fn;
     }
 };
 
@@ -407,7 +420,7 @@ fn dispatchBuiltin(env: ?*anyopaque, args: ?*const wasmer.wasm.ValVec, results: 
         return null;
     };
 
-    const builtin_id = if (args) |a| (if (a.size > 0) a.data[0].of.i32 else 0) else 0;
+    const builtin_id: u32 = if (args) |a| (if (a.size > 0) @intCast(a.data[0].of.i32) else 0) else 0;
 
     const builtin_name = ctx.getBuiltinName(builtin_id) orelse {
         var buf: [64]u8 = undefined;
@@ -442,6 +455,7 @@ fn dispatchBuiltin(env: ?*anyopaque, args: ?*const wasmer.wasm.ValVec, results: 
         setResultNull(results);
         return null;
     };
+    defer allocator.free(result_json);
 
     const result_addr = serializeJsonString(ctx, result_json) catch {
         setResultNull(results);
@@ -472,7 +486,7 @@ fn deserializeArg(allocator: std.mem.Allocator, ctx: *OpaContext, addr: i32) ?st
     if (addr <= 0 or addr >= @as(i32, @intCast(mem_slice.len))) return null;
 
     const json_dump_fn = ctx.json_dump_fn orelse return null;
-    const json_addr = json_dump_fn.call(i32, .{addr}) catch return null;
+    const json_addr = json_dump_fn.call1(addr) catch return null;
 
     if (json_addr <= 0 or json_addr >= @as(i32, @intCast(mem_slice.len))) return null;
 
@@ -490,14 +504,14 @@ fn serializeJsonString(ctx: *OpaContext, json_str: []const u8) !i32 {
     const malloc_fn = ctx.malloc_fn orelse return error.MissingFunction;
 
     const len: i32 = @intCast(json_str.len);
-    const wasm_addr = malloc_fn.call(i32, .{len + 1}) catch return error.AllocationFailed;
+    const wasm_addr = malloc_fn.call1(len + 1) catch return error.AllocationFailed;
 
     const mem_slice = memory.data();
     const uaddr: usize = @intCast(wasm_addr);
     @memcpy(mem_slice[uaddr .. uaddr + json_str.len], json_str);
     mem_slice[uaddr + json_str.len] = 0;
 
-    const result_addr = json_parse_fn.call(i32, .{ wasm_addr, len }) catch return error.ParseFailed;
+    const result_addr = json_parse_fn.call2(wasm_addr, len) catch return error.ParseFailed;
     return result_addr;
 }
 
@@ -510,14 +524,14 @@ fn serializeResult(allocator: std.mem.Allocator, ctx: *OpaContext, value: std.js
     defer allocator.free(json_str);
 
     const len: i32 = @intCast(json_str.len);
-    const wasm_addr = malloc_fn.call(i32, .{len + 1}) catch return error.AllocationFailed;
+    const wasm_addr = malloc_fn.call1(len + 1) catch return error.AllocationFailed;
 
     const mem_slice = memory.data();
     const uaddr: usize = @intCast(wasm_addr);
     @memcpy(mem_slice[uaddr .. uaddr + json_str.len], json_str);
     mem_slice[uaddr + json_str.len] = 0;
 
-    const result_addr = json_parse_fn.call(i32, .{ wasm_addr, len }) catch return error.ParseFailed;
+    const result_addr = json_parse_fn.call2(wasm_addr, len) catch return error.ParseFailed;
     return result_addr;
 }
 

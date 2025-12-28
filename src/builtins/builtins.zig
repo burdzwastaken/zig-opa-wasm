@@ -126,7 +126,29 @@ const builtin_map = std.StaticStringMap(BuiltinFn).initComptime(.{
     .{ "uuid.rfc4122", uuid.rfc4122 },
     .{ "units.parse", units.parse },
     .{ "units.parse_bytes", units.parseBytes },
+    // builtins for OPA compliance suite
+    .{ "custom_builtin_test", testBuiltinCustom },
+    .{ "custom_builtin_test_impure", testBuiltinImpure },
+    .{ "custom_builtin_test_memoization", testBuiltinMemoization },
 });
+
+fn testBuiltinCustom(_: std.mem.Allocator, args: Args) BuiltinError!json.Value {
+    const a = try args.get(0);
+    if (a != .integer) return BuiltinError.TypeMismatch;
+    return .{ .integer = a.integer + 1 };
+}
+
+fn testBuiltinImpure(_: std.mem.Allocator, _: Args) BuiltinError!json.Value {
+    return .{ .string = "foo" };
+}
+
+var memoization_called: bool = false;
+
+fn testBuiltinMemoization(_: std.mem.Allocator, _: Args) BuiltinError!json.Value {
+    if (memoization_called) return BuiltinError.InvalidArguments;
+    memoization_called = true;
+    return .{ .integer = 100 };
+}
 
 /// Dispatches a builtin call by name returning the JSON-serialized result.
 pub fn dispatch(allocator: std.mem.Allocator, name: []const u8, args: []const json.Value) BuiltinError![]const u8 {

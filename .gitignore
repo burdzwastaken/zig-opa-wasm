@@ -7,4 +7,5 @@ data.json
 policy.wasm
 tests/compliance/assets/
 tests/compliance/*.json
+tests/compliance/test.js
 tests/compliance/testcases.tar.gz
