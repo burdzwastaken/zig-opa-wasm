@@ -13,7 +13,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_opa_wasm = .{
-        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.3",
+        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.4",
         .hash = "...",
     },
 },
@@ -160,7 +160,7 @@ The library uses an abstract backend interface allowing different WASM runtimes 
 
 100+ builtins implemented including:
 
-- **Aggregates**: `any`, `all`, `count`, `sum`, `product`, `max`, `min`
+- **Aggregates**: `count`, `sum`, `product`, `max`, `min`
 - **Arrays**: `array.concat`, `array.slice`, `array.reverse`, `sort`, `walk`
 - **Bits**: `bits.and`, `bits.or`, `bits.xor`, `bits.negate`, `bits.lsh`, `bits.rsh`
 - **Crypto**: `crypto.md5`, `crypto.sha1`, `crypto.sha256`
