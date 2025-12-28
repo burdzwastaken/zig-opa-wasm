@@ -58,6 +58,15 @@ pub const Args = struct {
         if (v != .object) return error.TypeMismatch;
         return v.object;
     }
+
+    pub fn getSetOrArray(self: Args, idx: usize) BuiltinError![]const std.json.Value {
+        const v = try self.get(idx);
+        return switch (v) {
+            .array => |arr| arr.items,
+            .object => |obj| obj.values(),
+            else => error.TypeMismatch,
+        };
+    }
 };
 
 pub fn makeBool(b: bool) std.json.Value {
@@ -102,7 +111,15 @@ pub fn jsonEqual(a: std.json.Value, b: std.json.Value) bool {
             }
             return true;
         },
-        .object => false,
+        .object => |av| {
+            if (av.count() != b.object.count()) return false;
+            var iter = av.iterator();
+            while (iter.next()) |entry| {
+                const bv = b.object.get(entry.key_ptr.*) orelse return false;
+                if (!jsonEqual(entry.value_ptr.*, bv)) return false;
+            }
+            return true;
+        },
         .number_string => |av| std.mem.eql(u8, av, b.number_string),
     };
 }

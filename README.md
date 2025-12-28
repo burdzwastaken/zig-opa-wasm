@@ -13,7 +13,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_opa_wasm = .{
-        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.2",
+        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.3",
         .hash = "...",
     },
 },
@@ -86,9 +86,13 @@ defer allocator.free(result);
 ### Typed Evaluation
 
 ```zig
-const Decision = struct { allow: bool };
+// OPA returns results as [{"result": <value>}]
+const OpaResult = struct { result: bool };
 
-const decision = try instance.evaluateTyped(Decision, "authz/allow", "{\"user\":\"admin\"}");
+const results = try instance.evaluateTyped([]OpaResult, "authz/allow", .{ .user = "admin" });
+if (results.len > 0 and results[0].result) {
+    // allowed
+}
 ```
 
 ### Instance Pooling
@@ -136,12 +140,11 @@ if (!result.valid) {
 var wasm_backend = try opa.WasmerBackend.init(allocator);
 defer wasm_backend.deinit();
 
-wasm_backend.setLogLevel(.debug);
 wasm_backend.setLogCallback(struct {
     fn log(level: opa.LogLevel, msg: []const u8) void {
-        std.debug.print("[{s}] {s}\n", .{@tagName(level), msg});
+        std.debug.print("[{s}] {s}\n", .{ @tagName(level), msg });
     }
-}.log);
+}.log, .debug);
 ```
 
 ## Architecture
@@ -155,18 +158,26 @@ The library uses an abstract backend interface allowing different WASM runtimes 
 
 ## Supported Builtins
 
-85+ builtins implemented including:
+100+ builtins implemented including:
 
-- **Strings**: `concat`, `contains`, `sprintf`, `split`, `trim`, `lower`, `upper`, etc.
-- **Numbers**: `abs`, `round`, `ceil`, `floor`, `numbers.range`
-- **Arrays**: `array.concat`, `array.slice`, `count`, `sort`
-- **Objects**: `object.get`, `object.keys`, `object.remove`, `object.union`
-- **Encoding**: `base64.encode/decode`, `hex.encode/decode`, `urlquery.encode/decode`
+- **Aggregates**: `any`, `all`, `count`, `sum`, `product`, `max`, `min`
+- **Arrays**: `array.concat`, `array.slice`, `array.reverse`, `sort`, `walk`
+- **Bits**: `bits.and`, `bits.or`, `bits.xor`, `bits.negate`, `bits.lsh`, `bits.rsh`
 - **Crypto**: `crypto.md5`, `crypto.sha1`, `crypto.sha256`
-- **Time**: `time.now_ns`, `time.parse_rfc3339_ns`, `time.date`, `time.diff`
-- **Regex**: `regex.match`, `regex.split`, `regex.find_n`
-- **Net**: `net.cidr_contains`, `net.cidr_intersects`
-- **Types**: `is_string`, `is_number`, `is_array`, `is_object`, `type_name`
+- **Encoding**: `base64.encode/decode/is_valid`, `hex.encode/decode`, `json.marshal/unmarshal`, `json.patch`, `urlquery.encode/decode`, `urlquery.encode_object/decode_object`, `yaml.marshal/unmarshal`
+- **Glob**: `glob.match`
+- **Graph**: `graph.reachable`, `graph.reachable_paths`
+- **Net**: `net.cidr_contains`, `net.cidr_intersects`, `net.cidr_merge`, `net.cidr_expand`, `net.cidr_is_valid`, `net.lookup_ip_addr`
+- **Numbers**: `abs`, `round`, `ceil`, `floor`, `numbers.range`, `numbers.range_step`, `rand`, `to_number`
+- **Objects**: `object.get`, `object.keys`, `object.remove`, `object.union`, `object.filter`, `object.subset`, `json.filter`, `json.remove`
+- **Regex**: `regex.match`, `regex.split`, `regex.find_n`, `regex.find_all_string_submatch_n`, `regex.is_valid`, `regex.globs_match`, `regex.template_match`
+- **Semver**: `semver.compare`, `semver.is_valid`
+- **Strings**: `concat`, `contains`, `sprintf`, `split`, `trim`, `lower`, `upper`, `indexof`, `substring`, `replace`, `strings.count`, `strings.reverse`, `strings.any_prefix_match`, `strings.any_suffix_match`, `strings.render_template`
+- **Time**: `time.now_ns`, `time.parse_ns`, `time.parse_rfc3339_ns`, `time.parse_duration_ns`, `time.date`, `time.clock`, `time.weekday`, `time.diff`, `time.format`, `time.add_date`
+- **Types**: `is_string`, `is_number`, `is_array`, `is_object`, `is_set`, `is_null`, `is_boolean`, `type_name`, `to_number`
+- **Units**: `units.parse`, `units.parse_bytes`
+- **UUID**: `uuid.rfc4122`, `uuid.parse`
+- **Misc**: `print`, `opa.runtime`, `trace`
 
 ## License
 

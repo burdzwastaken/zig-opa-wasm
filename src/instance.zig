@@ -48,18 +48,18 @@ pub const Instance = struct {
     }
 
     fn parseMetadata(self: *Self) CreateError!void {
-        try self.parseBuiltins();
-        try self.parseEntrypoints();
+        try self.parseJsonMap("builtins", &self.builtins);
+        try self.parseJsonMap("entrypoints", &self.entrypoints);
     }
 
-    fn parseBuiltins(self: *Self) CreateError!void {
-        const opa_builtins = self.wasm_instance.getFunc("builtins") orelse return;
+    fn parseJsonMap(self: *Self, func_name: []const u8, map: *std.StringHashMapUnmanaged(u32)) CreateError!void {
+        const func = self.wasm_instance.getFunc(func_name) orelse return;
         const opa_json_dump = self.wasm_instance.getFunc("opa_json_dump") orelse return;
 
-        const builtins_value_addr: u32 = @bitCast(opa_builtins.call0() catch return error.InstantiationFailed);
-        if (builtins_value_addr == 0) return;
+        const value_addr: u32 = @bitCast(func.call0() catch return error.InstantiationFailed);
+        if (value_addr == 0) return;
 
-        const json_str_addr: u32 = @bitCast(opa_json_dump.call1(@bitCast(builtins_value_addr)) catch return error.InstantiationFailed);
+        const json_str_addr: u32 = @bitCast(opa_json_dump.call1(@bitCast(value_addr)) catch return error.InstantiationFailed);
         if (json_str_addr == 0) return;
 
         const json_str = self.memory_manager.readCString(json_str_addr) catch return error.InstantiationFailed;
@@ -76,52 +76,22 @@ pub const Instance = struct {
                 .integer => |i| @intCast(i),
                 else => continue,
             };
-            self.builtins.put(self.allocator, name, id) catch return error.OutOfMemory;
-        }
-    }
-
-    fn parseEntrypoints(self: *Self) CreateError!void {
-        const opa_entrypoints = self.wasm_instance.getFunc("entrypoints") orelse return;
-        const opa_json_dump = self.wasm_instance.getFunc("opa_json_dump") orelse return;
-
-        const entrypoints_value_addr: u32 = @bitCast(opa_entrypoints.call0() catch return error.InstantiationFailed);
-        if (entrypoints_value_addr == 0) return;
-
-        const json_str_addr: u32 = @bitCast(opa_json_dump.call1(@bitCast(entrypoints_value_addr)) catch return error.InstantiationFailed);
-        if (json_str_addr == 0) return;
-
-        const json_str = self.memory_manager.readCString(json_str_addr) catch return error.InstantiationFailed;
-
-        var parsed = std.json.parseFromSlice(std.json.Value, self.allocator, json_str, .{}) catch return error.InstantiationFailed;
-        defer parsed.deinit();
-
-        if (parsed.value != .object) return;
-
-        var iter = parsed.value.object.iterator();
-        while (iter.next()) |entry| {
-            const name = self.allocator.dupe(u8, entry.key_ptr.*) catch return error.OutOfMemory;
-            const id: u32 = switch (entry.value_ptr.*) {
-                .integer => |i| @intCast(i),
-                else => continue,
-            };
-            self.entrypoints.put(self.allocator, name, id) catch return error.OutOfMemory;
+            map.put(self.allocator, name, id) catch return error.OutOfMemory;
         }
     }
 
     pub fn deinit(self: *Self) void {
-        var bi_iter = self.builtins.keyIterator();
-        while (bi_iter.next()) |key| {
-            self.allocator.free(key.*);
-        }
-        self.builtins.deinit(self.allocator);
-
-        var ep_iter = self.entrypoints.keyIterator();
-        while (ep_iter.next()) |key| {
-            self.allocator.free(key.*);
-        }
-        self.entrypoints.deinit(self.allocator);
-
+        freeStringMap(self.allocator, &self.builtins);
+        freeStringMap(self.allocator, &self.entrypoints);
         self.wasm_instance.deinit();
+    }
+
+    fn freeStringMap(allocator: std.mem.Allocator, map: *std.StringHashMapUnmanaged(u32)) void {
+        var iter = map.keyIterator();
+        while (iter.next()) |key| {
+            allocator.free(key.*);
+        }
+        map.deinit(allocator);
     }
 
     /// Sets the base data document (persists across evaluations).
@@ -147,25 +117,17 @@ pub const Instance = struct {
     /// Returns the result as a JSON string owned by the caller.
     pub fn evaluate(self: *Self, entrypoint: []const u8, input_json: []const u8) ![]const u8 {
         const entrypoint_id = self.entrypoints.get(entrypoint) orelse {
-            self.logError("unknown entrypoint: {s}", .{entrypoint});
+            self.log(.err, "unknown entrypoint: {s}", .{entrypoint});
             return error.UnknownEntrypoint;
         };
-        self.logDebug("eval {s} (id={})", .{ entrypoint, entrypoint_id });
+        self.log(.debug, "eval {s} (id={})", .{ entrypoint, entrypoint_id });
         return self.evaluateById(entrypoint_id, input_json);
     }
 
-    fn logDebug(self: *Self, comptime fmt: []const u8, args: anytype) void {
-        const wb = self.getWasmerBackend();
+    fn log(self: *Self, level: @import("backends/wasmer.zig").LogLevel, comptime fmt: []const u8, args: anytype) void {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
-        wb.opa_context.log(.debug, msg);
-    }
-
-    fn logError(self: *Self, comptime fmt: []const u8, args: anytype) void {
-        const wb = self.getWasmerBackend();
-        var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
-        wb.opa_context.log(.err, msg);
+        self.getWasmerBackend().opa_context.log(level, msg);
     }
 
     /// Looks up a builtin function name by its numeric ID.

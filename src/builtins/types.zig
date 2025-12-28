@@ -95,3 +95,41 @@ test "types.is_null" {
     try std.testing.expect((try isNull(std.testing.allocator, Args.init(&.{.null}))).bool);
     try std.testing.expect(!(try isNull(std.testing.allocator, Args.init(&.{.{ .integer = 1 }}))).bool);
 }
+
+pub fn toNumber(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    const v = try a.get(0);
+
+    return switch (v) {
+        .integer, .float => v,
+        .number_string, .string => |s| {
+            if (std.fmt.parseInt(i64, s, 10)) |i| return .{ .integer = i } else |_| {}
+            if (std.fmt.parseFloat(f64, s)) |f| return .{ .float = f } else |_| {}
+            return error.InvalidArguments;
+        },
+        .bool => |b| .{ .integer = if (b) 1 else 0 },
+        .null => .{ .integer = 0 },
+        else => error.TypeMismatch,
+    };
+}
+
+test "to_number - string integer" {
+    const result = try toNumber(std.testing.allocator, Args.init(&.{.{ .string = "42" }}));
+    try std.testing.expectEqual(@as(i64, 42), result.integer);
+}
+
+test "to_number - string float" {
+    const result = try toNumber(std.testing.allocator, Args.init(&.{.{ .string = "3.14" }}));
+    try std.testing.expectApproxEqAbs(@as(f64, 3.14), result.float, 0.001);
+}
+
+test "to_number - boolean" {
+    var result = try toNumber(std.testing.allocator, Args.init(&.{.{ .bool = true }}));
+    try std.testing.expectEqual(@as(i64, 1), result.integer);
+    result = try toNumber(std.testing.allocator, Args.init(&.{.{ .bool = false }}));
+    try std.testing.expectEqual(@as(i64, 0), result.integer);
+}
+
+test "to_number - passthrough" {
+    const result = try toNumber(std.testing.allocator, Args.init(&.{.{ .integer = 99 }}));
+    try std.testing.expectEqual(@as(i64, 99), result.integer);
+}

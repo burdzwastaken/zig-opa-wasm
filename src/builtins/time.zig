@@ -312,6 +312,16 @@ fn rfc3339ToNs(str: []const u8) !i64 {
     return dateTimeToNs(dt) - tz_offset_secs * ns_per_s;
 }
 
+const duration_units = std.StaticStringMap(i64).initComptime(.{
+    .{ "ns", 1 },
+    .{ "us", ns_per_us },
+    .{ "µs", ns_per_us },
+    .{ "ms", ns_per_ms },
+    .{ "s", ns_per_s },
+    .{ "m", ns_per_min },
+    .{ "h", ns_per_hour },
+});
+
 fn parseDuration(str: []const u8) !i64 {
     if (str.len == 0) return error.InvalidFormat;
 
@@ -337,20 +347,7 @@ fn parseDuration(str: []const u8) !i64 {
         const unit = str[num_end..unit_end];
         if (unit.len == 0) return error.InvalidFormat;
 
-        const multiplier: i64 = if (std.mem.eql(u8, unit, "ns"))
-            1
-        else if (std.mem.eql(u8, unit, "us") or std.mem.eql(u8, unit, "µs"))
-            ns_per_us
-        else if (std.mem.eql(u8, unit, "ms"))
-            ns_per_ms
-        else if (std.mem.eql(u8, unit, "s"))
-            ns_per_s
-        else if (std.mem.eql(u8, unit, "m"))
-            ns_per_min
-        else if (std.mem.eql(u8, unit, "h"))
-            ns_per_hour
-        else
-            return error.InvalidFormat;
+        const multiplier = duration_units.get(unit) orelse return error.InvalidFormat;
 
         if (std.mem.indexOf(u8, num_str, ".")) |_| {
             const val = std.fmt.parseFloat(f64, num_str) catch return error.InvalidFormat;
@@ -415,6 +412,61 @@ test "time.clock" {
     try std.testing.expectEqual(@as(i64, 1), result.array.items[0].integer);
     try std.testing.expectEqual(@as(i64, 1), result.array.items[1].integer);
     try std.testing.expectEqual(@as(i64, 1), result.array.items[2].integer);
+}
+
+pub fn format(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    const ns = try args.getInt(0);
+    const layout = try args.getString(1);
+
+    const dt = nsToDateTime(ns);
+
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    defer result.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < layout.len) {
+        if (i + 4 <= layout.len and std.mem.eql(u8, layout[i .. i + 4], "2006")) {
+            result.writer(allocator).print("{d:0>4}", .{@as(u32, @intCast(if (dt.year < 0) -dt.year else dt.year))}) catch return error.AllocationFailed;
+            i += 4;
+        } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "01")) {
+            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.month))}) catch return error.AllocationFailed;
+            i += 2;
+        } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "02")) {
+            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.day))}) catch return error.AllocationFailed;
+            i += 2;
+        } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "15")) {
+            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.hour))}) catch return error.AllocationFailed;
+            i += 2;
+        } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "04")) {
+            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.minute))}) catch return error.AllocationFailed;
+            i += 2;
+        } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "05")) {
+            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.second))}) catch return error.AllocationFailed;
+            i += 2;
+        } else {
+            result.append(allocator, layout[i]) catch return error.AllocationFailed;
+            i += 1;
+        }
+    }
+
+    return .{ .string = result.toOwnedSlice(allocator) catch return error.AllocationFailed };
+}
+
+test "time.format" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // 2021-06-15T12:30:45Z in nanoseconds
+    const ns: i64 = 1623760245000000000;
+    var result = try format(allocator, Args.init(&.{ .{ .integer = ns }, .{ .string = "2006-01-02" } }));
+    try std.testing.expectEqualStrings("2021-06-15", result.string);
+
+    result = try format(allocator, Args.init(&.{ .{ .integer = ns }, .{ .string = "15:04:05" } }));
+    try std.testing.expectEqualStrings("12:30:45", result.string);
+
+    result = try format(allocator, Args.init(&.{ .{ .integer = ns }, .{ .string = "2006-01-02T15:04:05Z" } }));
+    try std.testing.expectEqualStrings("2021-06-15T12:30:45Z", result.string);
 }
 
 test "time.weekday" {

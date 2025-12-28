@@ -516,23 +516,9 @@ fn serializeJsonString(ctx: *OpaContext, json_str: []const u8) !i32 {
 }
 
 fn serializeResult(allocator: std.mem.Allocator, ctx: *OpaContext, value: std.json.Value) !i32 {
-    const json_parse_fn = ctx.json_parse_fn orelse return error.MissingFunction;
-    const memory = ctx.memory orelse return error.MissingMemory;
-    const malloc_fn = ctx.malloc_fn orelse return error.MissingFunction;
-
     const json_str = std.json.Stringify.valueAlloc(allocator, value, .{}) catch return error.SerializationFailed;
     defer allocator.free(json_str);
-
-    const len: i32 = @intCast(json_str.len);
-    const wasm_addr = malloc_fn.call1(len + 1) catch return error.AllocationFailed;
-
-    const mem_slice = memory.data();
-    const uaddr: usize = @intCast(wasm_addr);
-    @memcpy(mem_slice[uaddr .. uaddr + json_str.len], json_str);
-    mem_slice[uaddr + json_str.len] = 0;
-
-    const result_addr = json_parse_fn.call2(wasm_addr, len) catch return error.ParseFailed;
-    return result_addr;
+    return serializeJsonString(ctx, json_str);
 }
 
 test "wasmer backend init" {

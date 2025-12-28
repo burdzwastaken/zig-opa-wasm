@@ -49,16 +49,12 @@ pub fn endswith(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
 
 pub fn lower(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const s = try a.getString(0);
-    const result = allocator.alloc(u8, s.len) catch return error.AllocationFailed;
-    for (s, 0..) |c, i| result[i] = std.ascii.toLower(c);
-    return .{ .string = result };
+    return .{ .string = std.ascii.allocLowerString(allocator, s) catch return error.AllocationFailed };
 }
 
 pub fn upper(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const s = try a.getString(0);
-    const result = allocator.alloc(u8, s.len) catch return error.AllocationFailed;
-    for (s, 0..) |c, i| result[i] = std.ascii.toUpper(c);
-    return .{ .string = result };
+    return .{ .string = std.ascii.allocUpperString(allocator, s) catch return error.AllocationFailed };
 }
 
 pub fn trim(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
@@ -131,8 +127,8 @@ pub fn replace(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Valu
         return .{ .string = dup };
     }
 
-    const count = std.mem.count(u8, s, old);
-    const new_len = s.len + count * (new.len -| old.len);
+    const occurrences = std.mem.count(u8, s, old);
+    const new_len = s.len + occurrences * (new.len -| old.len);
     const result = allocator.alloc(u8, new_len) catch return error.AllocationFailed;
 
     _ = std.mem.replace(u8, s, old, new, result);
@@ -454,4 +450,134 @@ test "strings.sprintf with integer" {
     const result = try sprintf(allocator, Args.init(&args));
     defer allocator.free(result.string);
     try std.testing.expectEqualStrings("Value: 42", result.string);
+}
+
+fn anyMatch(s: []const u8, patterns: []const std.json.Value, comptime is_prefix: bool) BuiltinError!std.json.Value {
+    for (patterns) |item| {
+        if (item != .string) return error.TypeMismatch;
+        const matches = if (is_prefix) std.mem.startsWith(u8, s, item.string) else std.mem.endsWith(u8, s, item.string);
+        if (matches) return common.makeBool(true);
+    }
+    return common.makeBool(false);
+}
+
+pub fn any_prefix_match(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    return anyMatch(try a.getString(0), try a.getSetOrArray(1), true);
+}
+
+pub fn any_suffix_match(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    return anyMatch(try a.getString(0), try a.getSetOrArray(1), false);
+}
+
+test "strings.any_prefix_match - match found" {
+    const allocator = std.testing.allocator;
+    var prefixes = std.json.Array.init(allocator);
+    defer prefixes.deinit();
+    try prefixes.append(.{ .string = "foo" });
+    try prefixes.append(.{ .string = "bar" });
+    var args = [_]std.json.Value{ .{ .string = "foobar" }, .{ .array = prefixes } };
+    const result = try any_prefix_match(allocator, Args.init(&args));
+    try std.testing.expect(result.bool == true);
+}
+
+test "strings.any_prefix_match - no match" {
+    const allocator = std.testing.allocator;
+    var prefixes = std.json.Array.init(allocator);
+    defer prefixes.deinit();
+    try prefixes.append(.{ .string = "baz" });
+    try prefixes.append(.{ .string = "qux" });
+    var args = [_]std.json.Value{ .{ .string = "foobar" }, .{ .array = prefixes } };
+    const result = try any_prefix_match(allocator, Args.init(&args));
+    try std.testing.expect(result.bool == false);
+}
+
+test "strings.any_suffix_match - match found" {
+    const allocator = std.testing.allocator;
+    var suffixes = std.json.Array.init(allocator);
+    defer suffixes.deinit();
+    try suffixes.append(.{ .string = "foo" });
+    try suffixes.append(.{ .string = "bar" });
+    var args = [_]std.json.Value{ .{ .string = "foobar" }, .{ .array = suffixes } };
+    const result = try any_suffix_match(allocator, Args.init(&args));
+    try std.testing.expect(result.bool == true);
+}
+
+test "strings.any_suffix_match - no match" {
+    const allocator = std.testing.allocator;
+    var suffixes = std.json.Array.init(allocator);
+    defer suffixes.deinit();
+    try suffixes.append(.{ .string = "baz" });
+    try suffixes.append(.{ .string = "qux" });
+    var args = [_]std.json.Value{ .{ .string = "foobar" }, .{ .array = suffixes } };
+    const result = try any_suffix_match(allocator, Args.init(&args));
+    try std.testing.expect(result.bool == false);
+}
+
+pub fn count(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    const haystack = try a.getString(0);
+    const needle = try a.getString(1);
+    if (needle.len == 0) return common.makeNumber(0);
+    const n = std.mem.count(u8, haystack, needle);
+    return common.makeNumber(@floatFromInt(n));
+}
+
+test "strings.count" {
+    var args = [_]std.json.Value{ .{ .string = "abcabc" }, .{ .string = "abc" } };
+    const result = try count(std.testing.allocator, Args.init(&args));
+    try std.testing.expectEqual(@as(i64, 2), result.integer);
+}
+
+test "strings.count - no match" {
+    var args = [_]std.json.Value{ .{ .string = "hello" }, .{ .string = "xyz" } };
+    const result = try count(std.testing.allocator, Args.init(&args));
+    try std.testing.expectEqual(@as(i64, 0), result.integer);
+}
+
+test "strings.count - empty needle" {
+    var args = [_]std.json.Value{ .{ .string = "hello" }, .{ .string = "" } };
+    const result = try count(std.testing.allocator, Args.init(&args));
+    try std.testing.expectEqual(@as(i64, 0), result.integer);
+}
+
+pub fn render_template(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    const template = try a.getString(0);
+    const vars = try a.getObject(1);
+
+    var result = std.ArrayListUnmanaged(u8){};
+    var i: usize = 0;
+
+    while (i < template.len) {
+        if (template[i] == '{' and i + 1 < template.len and template[i + 1] == '{') {
+            if (std.mem.indexOfPos(u8, template, i + 2, "}}")) |end| {
+                const key = template[i + 2 .. end];
+                if (vars.get(key)) |val| {
+                    if (val == .string) {
+                        result.appendSlice(allocator, val.string) catch return error.AllocationFailed;
+                    } else {
+                        const json_str = std.json.Stringify.valueAlloc(allocator, val, .{}) catch return error.AllocationFailed;
+                        result.appendSlice(allocator, json_str) catch return error.AllocationFailed;
+                    }
+                }
+                i = end + 2;
+                continue;
+            }
+        }
+        result.append(allocator, template[i]) catch return error.AllocationFailed;
+        i += 1;
+    }
+
+    return .{ .string = result.toOwnedSlice(allocator) catch return error.AllocationFailed };
+}
+
+test "strings.render_template" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var vars = std.json.ObjectMap.init(alloc);
+    try vars.put("name", .{ .string = "world" });
+
+    var args = [_]std.json.Value{ .{ .string = "Hello, {{name}}!" }, .{ .object = vars } };
+    const result = try render_template(alloc, Args.init(&args));
+    try std.testing.expectEqualStrings("Hello, world!", result.string);
 }

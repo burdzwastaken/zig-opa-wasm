@@ -26,11 +26,24 @@ pub fn printUsage() !void {
     );
 }
 
+fn writeError(comptime fmt: []const u8, args: anytype) void {
+    var buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
+    stderr.writeAll(msg) catch {};
+}
+
+pub fn runWithArgs(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        try stderr.writeAll("error: missing FILE argument\n\n");
+        try printUsage();
+        return;
+    }
+    return run(allocator, .{ .file = args[0] });
+}
+
 pub fn run(allocator: std.mem.Allocator, args: InfoArgs) !void {
     const wasm_bytes = std.fs.cwd().readFileAlloc(allocator, args.file, 50 * 1024 * 1024) catch |err| {
-        var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "error: failed to read '{s}': {}\n", .{ args.file, err }) catch unreachable;
-        try stderr.writeAll(msg);
+        writeError("error: failed to read '{s}': {}\n", .{ args.file, err });
         return error.FileReadFailed;
     };
     defer allocator.free(wasm_bytes);
@@ -38,26 +51,20 @@ pub fn run(allocator: std.mem.Allocator, args: InfoArgs) !void {
     const file_size = wasm_bytes.len;
 
     var backend = opa.WasmerBackend.init(allocator) catch |err| {
-        var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "error: failed to initialize backend: {}\n", .{err}) catch unreachable;
-        try stderr.writeAll(msg);
+        writeError("error: failed to initialize backend: {}\n", .{err});
         return error.BackendInitFailed;
     };
     defer backend.deinit();
 
     var be = backend.asBackend();
     var policy = opa.Policy.load(allocator, &be, wasm_bytes) catch |err| {
-        var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "error: failed to load policy: {}\n", .{err}) catch unreachable;
-        try stderr.writeAll(msg);
+        writeError("error: failed to load policy: {}\n", .{err});
         return error.PolicyLoadFailed;
     };
     defer policy.deinit();
 
     var instance = opa.Instance.create(allocator, &policy) catch |err| {
-        var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "error: failed to create instance: {}\n", .{err}) catch unreachable;
-        try stderr.writeAll(msg);
+        writeError("error: failed to create instance: {}\n", .{err});
         return error.InstanceCreateFailed;
     };
     defer instance.deinit();

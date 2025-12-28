@@ -28,10 +28,9 @@ pub fn sha256(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value
 
 fn hexEncodeHash(allocator: std.mem.Allocator, hash: []const u8) BuiltinError!std.json.Value {
     const result = allocator.alloc(u8, hash.len * 2) catch return error.AllocationFailed;
-    const hex_chars = "0123456789abcdef";
     for (hash, 0..) |byte, i| {
-        result[i * 2] = hex_chars[byte >> 4];
-        result[i * 2 + 1] = hex_chars[byte & 0x0f];
+        result[i * 2] = std.fmt.digitToChar(byte >> 4, .lower);
+        result[i * 2 + 1] = std.fmt.digitToChar(byte & 0x0f, .lower);
     }
     return .{ .string = result };
 }

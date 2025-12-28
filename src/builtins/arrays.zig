@@ -183,3 +183,143 @@ test "arrays.count string" {
     const result = try count(std.testing.allocator, Args.init(&.{.{ .string = "hello" }}));
     try std.testing.expectEqual(@as(i64, 5), result.integer);
 }
+
+/// Returns true if any element in the collection is true.
+/// For arrays/sets: returns true if any element equals true.
+pub fn any(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    const arr = try a.getArray(0);
+    for (arr) |item| {
+        if (item == .bool and item.bool) return .{ .bool = true };
+    }
+    return .{ .bool = false };
+}
+
+/// Returns true if all elements in the collection are true.
+/// For arrays/sets: returns true if every element equals true.
+pub fn all(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    const arr = try a.getArray(0);
+    if (arr.len == 0) return .{ .bool = true };
+    for (arr) |item| {
+        if (item != .bool or !item.bool) return .{ .bool = false };
+    }
+    return .{ .bool = true };
+}
+
+test "any - some true" {
+    var arr = std.json.Array.init(std.testing.allocator);
+    defer arr.deinit();
+    try arr.append(.{ .bool = false });
+    try arr.append(.{ .bool = true });
+    try arr.append(.{ .bool = false });
+    const result = try any(std.testing.allocator, Args.init(&.{.{ .array = arr }}));
+    try std.testing.expect(result.bool);
+}
+
+test "any - all false" {
+    var arr = std.json.Array.init(std.testing.allocator);
+    defer arr.deinit();
+    try arr.append(.{ .bool = false });
+    try arr.append(.{ .bool = false });
+    const result = try any(std.testing.allocator, Args.init(&.{.{ .array = arr }}));
+    try std.testing.expect(!result.bool);
+}
+
+test "all - all true" {
+    var arr = std.json.Array.init(std.testing.allocator);
+    defer arr.deinit();
+    try arr.append(.{ .bool = true });
+    try arr.append(.{ .bool = true });
+    const result = try all(std.testing.allocator, Args.init(&.{.{ .array = arr }}));
+    try std.testing.expect(result.bool);
+}
+
+test "all - some false" {
+    var arr = std.json.Array.init(std.testing.allocator);
+    defer arr.deinit();
+    try arr.append(.{ .bool = true });
+    try arr.append(.{ .bool = false });
+    const result = try all(std.testing.allocator, Args.init(&.{.{ .array = arr }}));
+    try std.testing.expect(!result.bool);
+}
+
+test "all - empty array" {
+    const allocator = std.testing.allocator;
+    var arr = std.json.Array.init(allocator);
+    defer arr.deinit();
+    var args = [_]std.json.Value{.{ .array = arr }};
+    const result = try all(allocator, Args.init(&args));
+    try std.testing.expect(result.bool == true);
+}
+
+pub fn walk(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    const input = try a.get(0);
+    var result = std.json.Array.init(allocator);
+    var path = std.json.Array.init(allocator);
+    defer path.deinit();
+    walkRecursive(allocator, input, &path, &result) catch return error.AllocationFailed;
+    return .{ .array = result };
+}
+
+fn walkRecursive(
+    allocator: std.mem.Allocator,
+    value: std.json.Value,
+    path: *std.json.Array,
+    result: *std.json.Array,
+) !void {
+    var pair = std.json.Array.init(allocator);
+    const path_copy = try path.clone();
+    try pair.append(.{ .array = path_copy });
+    try pair.append(value);
+    try result.append(.{ .array = pair });
+
+    switch (value) {
+        .object => |obj| {
+            for (obj.keys()) |key| {
+                try path.append(.{ .string = key });
+                try walkRecursive(allocator, obj.get(key).?, path, result);
+                _ = path.pop();
+            }
+        },
+        .array => |arr| {
+            for (arr.items, 0..) |item, i| {
+                try path.append(.{ .integer = @intCast(i) });
+                try walkRecursive(allocator, item, path, result);
+                _ = path.pop();
+            }
+        },
+        else => {},
+    }
+}
+
+test "walk - simple object" {
+    const allocator = std.testing.allocator;
+    var obj = std.json.ObjectMap.init(allocator);
+    defer obj.deinit();
+    try obj.put("a", .{ .integer = 1 });
+    var args = [_]std.json.Value{.{ .object = obj }};
+    const result = try walk(allocator, Args.init(&args));
+    defer freeWalkResult(allocator, result);
+    try std.testing.expect(result.array.items.len == 2);
+}
+
+test "walk - nested" {
+    const allocator = std.testing.allocator;
+    var inner = std.json.ObjectMap.init(allocator);
+    defer inner.deinit();
+    try inner.put("b", .{ .integer = 2 });
+    var outer = std.json.ObjectMap.init(allocator);
+    defer outer.deinit();
+    try outer.put("a", .{ .object = inner });
+    var args = [_]std.json.Value{.{ .object = outer }};
+    const result = try walk(allocator, Args.init(&args));
+    defer freeWalkResult(allocator, result);
+    try std.testing.expect(result.array.items.len == 3);
+}
+
+fn freeWalkResult(_: std.mem.Allocator, result: std.json.Value) void {
+    for (result.array.items) |pair| {
+        pair.array.items[0].array.deinit();
+        pair.array.deinit();
+    }
+    result.array.deinit();
+}

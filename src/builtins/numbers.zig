@@ -5,6 +5,14 @@ const common = @import("common.zig");
 const Args = common.Args;
 const BuiltinError = common.BuiltinError;
 
+fn toF64(item: std.json.Value) ?f64 {
+    return switch (item) {
+        .integer => |n| @floatFromInt(n),
+        .float => |f| f,
+        else => null,
+    };
+}
+
 pub fn abs(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const n = try a.getNumber(0);
     return common.makeNumber(@abs(n));
@@ -28,43 +36,23 @@ pub fn floor(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
 pub fn sum(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const arr = try a.getArray(0);
     var total: f64 = 0;
-    for (arr) |item| {
-        total += switch (item) {
-            .integer => |n| @as(f64, @floatFromInt(n)),
-            .float => |f| f,
-            else => return error.TypeMismatch,
-        };
-    }
+    for (arr) |item| total += toF64(item) orelse return error.TypeMismatch;
     return common.makeNumber(total);
 }
 
 pub fn product(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const arr = try a.getArray(0);
     var result: f64 = 1;
-    for (arr) |item| {
-        result *= switch (item) {
-            .integer => |n| @as(f64, @floatFromInt(n)),
-            .float => |f| f,
-            else => return error.TypeMismatch,
-        };
-    }
+    for (arr) |item| result *= toF64(item) orelse return error.TypeMismatch;
     return common.makeNumber(result);
 }
 
 pub fn max(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const arr = try a.getArray(0);
     if (arr.len == 0) return error.InvalidArguments;
-    var result: f64 = switch (arr[0]) {
-        .integer => |n| @as(f64, @floatFromInt(n)),
-        .float => |f| f,
-        else => return error.TypeMismatch,
-    };
+    var result: f64 = toF64(arr[0]) orelse return error.TypeMismatch;
     for (arr[1..]) |item| {
-        const val: f64 = switch (item) {
-            .integer => |n| @as(f64, @floatFromInt(n)),
-            .float => |f| f,
-            else => return error.TypeMismatch,
-        };
+        const val = toF64(item) orelse return error.TypeMismatch;
         if (val > result) result = val;
     }
     return common.makeNumber(result);
@@ -73,17 +61,9 @@ pub fn max(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
 pub fn min(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const arr = try a.getArray(0);
     if (arr.len == 0) return error.InvalidArguments;
-    var result: f64 = switch (arr[0]) {
-        .integer => |n| @as(f64, @floatFromInt(n)),
-        .float => |f| f,
-        else => return error.TypeMismatch,
-    };
+    var result: f64 = toF64(arr[0]) orelse return error.TypeMismatch;
     for (arr[1..]) |item| {
-        const val: f64 = switch (item) {
-            .integer => |n| @as(f64, @floatFromInt(n)),
-            .float => |f| f,
-            else => return error.TypeMismatch,
-        };
+        const val = toF64(item) orelse return error.TypeMismatch;
         if (val < result) result = val;
     }
     return common.makeNumber(result);
@@ -102,33 +82,57 @@ pub fn numbersRange(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json
     return .{ .array = arr };
 }
 
+pub fn numbersRangeStep(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
+    const start = try a.getInt(0);
+    const stop = try a.getInt(1);
+    const step = try a.getInt(2);
+    if (step == 0) return error.InvalidArguments;
+    if ((step > 0 and stop < start) or (step < 0 and stop > start)) {
+        return .{ .array = std.json.Array.init(allocator) };
+    }
+    const diff: usize = if (step > 0)
+        @intCast(stop - start)
+    else
+        @intCast(start - stop);
+    const abs_step: usize = @intCast(if (step > 0) step else -step);
+    const len: usize = diff / abs_step + 1;
+    var arr = std.json.Array.initCapacity(allocator, len) catch return error.AllocationFailed;
+    var i = start;
+    if (step > 0) {
+        while (i <= stop) : (i += step) {
+            arr.appendAssumeCapacity(.{ .integer = i });
+        }
+    } else {
+        while (i >= stop) : (i += step) {
+            arr.appendAssumeCapacity(.{ .integer = i });
+        }
+    }
+    return .{ .array = arr };
+}
+
 pub fn formatInt(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const n = try a.getInt(0);
     const base = try a.getInt(1);
     if (base < 2 or base > 36) return error.InvalidArguments;
     const base_u8: u8 = @intCast(base);
-    var out_buf: [65]u8 = undefined;
-    var out_len: usize = 0;
+    var buf: [65]u8 = undefined;
+    var len: usize = 0;
     var val: u64 = if (n < 0) @intCast(-n) else @intCast(n);
     if (val == 0) {
-        out_buf[0] = '0';
-        out_len = 1;
+        buf[0] = '0';
+        len = 1;
     } else {
-        while (val > 0) {
-            const digit: u8 = @intCast(val % base_u8);
-            out_buf[out_len] = if (digit < 10) '0' + digit else 'a' + digit - 10;
-            out_len += 1;
+        while (val > 0) : (len += 1) {
+            buf[len] = std.fmt.digitToChar(@intCast(val % base_u8), .lower);
             val /= base_u8;
         }
     }
     if (n < 0) {
-        out_buf[out_len] = '-';
-        out_len += 1;
+        buf[len] = '-';
+        len += 1;
     }
-    const final = allocator.alloc(u8, out_len) catch return error.AllocationFailed;
-    for (0..out_len) |i| {
-        final[i] = out_buf[out_len - 1 - i];
-    }
+    const final = allocator.alloc(u8, len) catch return error.AllocationFailed;
+    for (0..len) |i| final[i] = buf[len - 1 - i];
     return .{ .string = final };
 }
 
@@ -199,4 +203,21 @@ test "numbers.range" {
     try std.testing.expectEqual(@as(i64, 1), result.array.items[0].integer);
     try std.testing.expectEqual(@as(i64, 2), result.array.items[1].integer);
     try std.testing.expectEqual(@as(i64, 3), result.array.items[2].integer);
+}
+
+test "numbers.range_step - positive step" {
+    const result = try numbersRangeStep(std.testing.allocator, Args.init(&.{ .{ .integer = 0 }, .{ .integer = 10 }, .{ .integer = 2 } }));
+    defer result.array.deinit();
+    try std.testing.expectEqual(@as(usize, 6), result.array.items.len);
+    try std.testing.expectEqual(@as(i64, 0), result.array.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 2), result.array.items[1].integer);
+    try std.testing.expectEqual(@as(i64, 10), result.array.items[5].integer);
+}
+
+test "numbers.range_step - negative step" {
+    const result = try numbersRangeStep(std.testing.allocator, Args.init(&.{ .{ .integer = 10 }, .{ .integer = 0 }, .{ .integer = -2 } }));
+    defer result.array.deinit();
+    try std.testing.expectEqual(@as(usize, 6), result.array.items.len);
+    try std.testing.expectEqual(@as(i64, 10), result.array.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 0), result.array.items[5].integer);
 }

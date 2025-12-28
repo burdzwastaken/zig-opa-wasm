@@ -30,7 +30,7 @@ pub fn main() !void {
     }
 
     if (std.mem.eql(u8, cmd, "-v") or std.mem.eql(u8, cmd, "--version")) {
-        try stdout.writeAll("opa-zig 0.0.2\n");
+        try stdout.writeAll("opa-zig 0.0.3\n");
         return;
     }
 
@@ -50,54 +50,36 @@ pub fn main() !void {
     }
 }
 
+fn runCommand(
+    allocator: std.mem.Allocator,
+    args: []const []const u8,
+    printUsageFn: *const fn () anyerror!void,
+    runFn: *const fn (std.mem.Allocator, []const []const u8) anyerror!void,
+) !void {
+    if (args.len > 0) {
+        const arg = args[0];
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            try printUsageFn();
+            return;
+        }
+    }
+    try runFn(allocator, args);
+}
+
 fn runInfoCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len == 0) {
-        try stderr.writeAll("error: missing FILE argument\n\n");
-        try info.printUsage();
-        return;
-    }
-
-    const arg = args[0];
-
-    if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-        try info.printUsage();
-        return;
-    }
-
-    try info.run(allocator, .{ .file = arg });
+    try runCommand(allocator, args, info.printUsage, info.runWithArgs);
 }
 
 fn runEvalCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len > 0) {
-        const arg = args[0];
-        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            try eval_cmd.printUsage();
-            return;
-        }
-    }
-    try eval_cmd.run(allocator, args);
+    try runCommand(allocator, args, eval_cmd.printUsage, eval_cmd.run);
 }
 
 fn runBenchCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len > 0) {
-        const arg = args[0];
-        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            try bench_cmd.printUsage();
-            return;
-        }
-    }
-    try bench_cmd.run(allocator, args);
+    try runCommand(allocator, args, bench_cmd.printUsage, bench_cmd.run);
 }
 
 fn runComplianceCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    if (args.len > 0) {
-        const arg = args[0];
-        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            try compliance_cmd.printUsage();
-            return;
-        }
-    }
-    try compliance_cmd.run(allocator, args);
+    try runCommand(allocator, args, compliance_cmd.printUsage, compliance_cmd.run);
 }
 
 fn printUsage() !void {

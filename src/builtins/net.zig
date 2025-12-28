@@ -71,13 +71,7 @@ pub fn cidrExpand(allocator: std.mem.Allocator, args: Args) BuiltinError!std.jso
     const base = net.addr & net.mask;
     var i: u32 = 0;
     while (i < num_hosts) : (i += 1) {
-        const addr = base | i;
-        const ip_str = std.fmt.allocPrint(allocator, "{}.{}.{}.{}", .{
-            (addr >> 24) & 0xFF,
-            (addr >> 16) & 0xFF,
-            (addr >> 8) & 0xFF,
-            addr & 0xFF,
-        }) catch return error.AllocationFailed;
+        const ip_str = formatIp4(allocator, base | i) catch return error.AllocationFailed;
         results.append(.{ .string = ip_str }) catch return error.AllocationFailed;
     }
 
@@ -136,13 +130,7 @@ pub fn cidrMerge(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json
             }
         }
 
-        const cidr_str = std.fmt.allocPrint(allocator, "{}.{}.{}.{}/{}", .{
-            (current.addr >> 24) & 0xFF,
-            (current.addr >> 16) & 0xFF,
-            (current.addr >> 8) & 0xFF,
-            current.addr & 0xFF,
-            current.prefix,
-        }) catch return error.AllocationFailed;
+        const cidr_str = formatCidr(allocator, current) catch return error.AllocationFailed;
         results.append(.{ .string = cidr_str }) catch return error.AllocationFailed;
     }
 
@@ -177,23 +165,23 @@ fn parseCidrOrIp(s: []const u8) ?Network {
 }
 
 fn parseIpv4(s: []const u8) ?u32 {
-    var parts: [4]u8 = undefined;
-    var part_idx: usize = 0;
-    var start: usize = 0;
+    const addr = std.net.Ip4Address.parse(s, 0) catch return null;
+    return std.mem.bigToNative(u32, addr.sa.addr);
+}
 
-    for (s, 0..) |c, i| {
-        if (c == '.') {
-            if (part_idx >= 3) return null;
-            parts[part_idx] = std.fmt.parseInt(u8, s[start..i], 10) catch return null;
-            part_idx += 1;
-            start = i + 1;
-        }
-    }
+fn formatIp4(allocator: std.mem.Allocator, addr: u32) ![]const u8 {
+    return std.fmt.allocPrint(allocator, "{}.{}.{}.{}", .{
+        @as(u8, @truncate(addr >> 24)), @as(u8, @truncate(addr >> 16)),
+        @as(u8, @truncate(addr >> 8)),  @as(u8, @truncate(addr)),
+    });
+}
 
-    if (part_idx != 3) return null;
-    parts[3] = std.fmt.parseInt(u8, s[start..], 10) catch return null;
-
-    return (@as(u32, parts[0]) << 24) | (@as(u32, parts[1]) << 16) | (@as(u32, parts[2]) << 8) | @as(u32, parts[3]);
+fn formatCidr(allocator: std.mem.Allocator, net: Network) ![]const u8 {
+    return std.fmt.allocPrint(allocator, "{}.{}.{}.{}/{}", .{
+        @as(u8, @truncate(net.addr >> 24)), @as(u8, @truncate(net.addr >> 16)),
+        @as(u8, @truncate(net.addr >> 8)),  @as(u8, @truncate(net.addr)),
+        net.prefix,
+    });
 }
 
 test "net.cidr_contains" {
@@ -218,6 +206,25 @@ test "net.cidr_contains" {
     try std.testing.expect(result.bool);
 }
 
+pub fn cidrIntersects(_: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    const cidr1_str = try args.getString(0);
+    const cidr2_str = try args.getString(1);
+
+    const net1 = parseCidr(cidr1_str) orelse return error.InvalidArguments;
+    const net2 = parseCidr(cidr2_str) orelse return error.InvalidArguments;
+
+    const smaller_prefix = @min(net1.prefix, net2.prefix);
+    const mask: u32 = if (smaller_prefix == 0) 0 else (~@as(u32, 0)) << @intCast(32 - smaller_prefix);
+
+    const intersects = (net1.addr & mask) == (net2.addr & mask);
+    return .{ .bool = intersects };
+}
+
+pub fn cidrIsValid(_: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    const cidr_str = try args.getString(0);
+    return .{ .bool = parseCidr(cidr_str) != null };
+}
+
 test "net.cidr_expand" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -230,4 +237,39 @@ test "net.cidr_expand" {
     try std.testing.expectEqualStrings("192.168.1.1", result.array.items[1].string);
     try std.testing.expectEqualStrings("192.168.1.2", result.array.items[2].string);
     try std.testing.expectEqualStrings("192.168.1.3", result.array.items[3].string);
+}
+
+test "net.cidr_intersects" {
+    const allocator = std.testing.allocator;
+
+    var result = try cidrIntersects(allocator, Args.init(&.{
+        .{ .string = "192.168.1.0/24" },
+        .{ .string = "192.168.1.128/25" },
+    }));
+    try std.testing.expect(result.bool);
+
+    result = try cidrIntersects(allocator, Args.init(&.{
+        .{ .string = "192.168.1.0/24" },
+        .{ .string = "192.168.2.0/24" },
+    }));
+    try std.testing.expect(!result.bool);
+
+    result = try cidrIntersects(allocator, Args.init(&.{
+        .{ .string = "10.0.0.0/8" },
+        .{ .string = "10.1.2.0/24" },
+    }));
+    try std.testing.expect(result.bool);
+}
+
+test "net.cidr_is_valid" {
+    const allocator = std.testing.allocator;
+
+    var result = try cidrIsValid(allocator, Args.init(&.{.{ .string = "192.168.1.0/24" }}));
+    try std.testing.expect(result.bool);
+
+    result = try cidrIsValid(allocator, Args.init(&.{.{ .string = "not-a-cidr" }}));
+    try std.testing.expect(!result.bool);
+
+    result = try cidrIsValid(allocator, Args.init(&.{.{ .string = "192.168.1.0/33" }}));
+    try std.testing.expect(!result.bool);
 }

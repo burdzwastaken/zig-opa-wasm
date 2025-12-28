@@ -8,8 +8,9 @@ const Input = struct {
     action: []const u8,
 };
 
-const Output = struct {
-    allow: bool,
+// OPA returns results as [{"result": <value>}]
+const OpaResult = struct {
+    result: bool,
 };
 
 pub fn main() !void {
@@ -30,9 +31,12 @@ pub fn main() !void {
     defer instance.deinit();
 
     const input = Input{ .user = "admin", .action = "read" };
-    const result = try instance.evaluateTyped(Output, "example/allow", input);
+    const results = try instance.evaluateTyped([]OpaResult, "example/allow", input);
 
     const stdout = std.fs.File.stdout();
-    const msg = if (result.allow) "allowed\n" else "denied\n";
-    try stdout.writeAll(msg);
+    if (results.len > 0 and results[0].result) {
+        try stdout.writeAll("allowed\n");
+    } else {
+        try stdout.writeAll("denied\n");
+    }
 }

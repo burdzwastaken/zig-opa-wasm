@@ -111,19 +111,17 @@ pub fn validate(self: *const Self, allocator: std.mem.Allocator) !ValidationResu
 }
 
 pub fn deinit(self: *Self) void {
-    var ep_iter = self.entrypoints.keyIterator();
-    while (ep_iter.next()) |key| {
-        self.allocator.free(key.*);
-    }
-    self.entrypoints.deinit(self.allocator);
-
-    var bi_iter = self.required_builtins.keyIterator();
-    while (bi_iter.next()) |key| {
-        self.allocator.free(key.*);
-    }
-    self.required_builtins.deinit(self.allocator);
-
+    freeStringMap(self.allocator, &self.entrypoints);
+    freeStringMap(self.allocator, &self.required_builtins);
     self.module.deinit();
+}
+
+fn freeStringMap(allocator: std.mem.Allocator, map: *std.StringHashMapUnmanaged(u32)) void {
+    var iter = map.keyIterator();
+    while (iter.next()) |key| {
+        allocator.free(key.*);
+    }
+    map.deinit(allocator);
 }
 
 test "policy load minimal wasm" {
