@@ -1,12 +1,15 @@
 //! OPA regular expression builtins.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const common = @import("common.zig");
 const Args = common.Args;
 const BuiltinError = common.BuiltinError;
-const mvzr = @import("mvzr");
+
+const mvzr = if (builtin.os.tag == .freestanding) struct {} else @import("mvzr");
 
 pub fn match(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     _ = allocator;
     const pattern = try args.getString(0);
     const value = try args.getString(1);
@@ -17,6 +20,7 @@ pub fn match(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Val
 }
 
 pub fn findN(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const pattern = try args.getString(0);
     const value = try args.getString(1);
     const n = try args.getInt(2);
@@ -39,6 +43,7 @@ pub fn findN(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Val
 }
 
 pub fn split(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const pattern = try args.getString(0);
     const value = try args.getString(1);
 
@@ -64,6 +69,7 @@ pub fn split(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Val
 }
 
 pub fn replace(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const value = try args.getString(0);
     const pattern = try args.getString(1);
     const replacement = try args.getString(2);
@@ -86,6 +92,7 @@ pub fn replace(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.V
 }
 
 pub fn findAllStringSubmatchN(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const pattern = try args.getString(0);
     const value = try args.getString(1);
     const n = try args.getInt(2);
@@ -109,66 +116,11 @@ pub fn findAllStringSubmatchN(allocator: std.mem.Allocator, args: Args) BuiltinE
     return .{ .array = results };
 }
 
-test "regex.match" {
-    const allocator = std.testing.allocator;
-
-    var result = try match(allocator, Args.init(&.{
-        .{ .string = "^foo" },
-        .{ .string = "foobar" },
-    }));
-    try std.testing.expect(result.bool);
-
-    result = try match(allocator, Args.init(&.{
-        .{ .string = "^bar" },
-        .{ .string = "foobar" },
-    }));
-    try std.testing.expect(!result.bool);
-}
-
-test "regex.split" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const result = try split(arena.allocator(), Args.init(&.{
-        .{ .string = "," },
-        .{ .string = "a,b,c" },
-    }));
-    try std.testing.expectEqual(@as(usize, 3), result.array.items.len);
-    try std.testing.expectEqualStrings("a", result.array.items[0].string);
-    try std.testing.expectEqualStrings("b", result.array.items[1].string);
-    try std.testing.expectEqualStrings("c", result.array.items[2].string);
-}
-
-test "regex.replace" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const result = try replace(arena.allocator(), Args.init(&.{
-        .{ .string = "hello world" },
-        .{ .string = "world" },
-        .{ .string = "zig" },
-    }));
-    try std.testing.expectEqualStrings("hello zig", result.string);
-}
-
 pub fn isValid(_: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const pattern = try args.getString(0);
     const regex = mvzr.compile(pattern);
     return .{ .bool = regex != null };
-}
-
-test "regex.is_valid - valid pattern" {
-    const result = try isValid(std.testing.allocator, Args.init(&.{
-        .{ .string = "^foo.*bar$" },
-    }));
-    try std.testing.expect(result.bool);
-}
-
-test "regex.is_valid - invalid pattern" {
-    const result = try isValid(std.testing.allocator, Args.init(&.{
-        .{ .string = "[invalid" },
-    }));
-    try std.testing.expect(!result.bool);
 }
 
 pub fn globsMatch(_: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
@@ -207,23 +159,8 @@ fn globMatchesString(pattern: []const u8, s: []const u8) bool {
     return pi == pattern.len;
 }
 
-test "regex.globs_match" {
-    const allocator = std.testing.allocator;
-
-    var result = try globsMatch(allocator, Args.init(&.{
-        .{ .string = "*.txt" },
-        .{ .string = "foo.txt" },
-    }));
-    try std.testing.expect(result.bool);
-
-    result = try globsMatch(allocator, Args.init(&.{
-        .{ .string = "foo.*" },
-        .{ .string = "foo.bar" },
-    }));
-    try std.testing.expect(result.bool);
-}
-
 pub fn templateMatch(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const template = try args.getString(0);
     const input = try args.getString(1);
     const delim_start = try args.getString(2);
@@ -255,7 +192,85 @@ pub fn templateMatch(allocator: std.mem.Allocator, args: Args) BuiltinError!std.
     return .{ .bool = regex.isMatch(input) };
 }
 
+test "regex.match" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+
+    var result = try match(allocator, Args.init(&.{
+        .{ .string = "^foo" },
+        .{ .string = "foobar" },
+    }));
+    try std.testing.expect(result.bool);
+
+    result = try match(allocator, Args.init(&.{
+        .{ .string = "^bar" },
+        .{ .string = "foobar" },
+    }));
+    try std.testing.expect(!result.bool);
+}
+
+test "regex.split" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const result = try split(arena.allocator(), Args.init(&.{
+        .{ .string = "," },
+        .{ .string = "a,b,c" },
+    }));
+    try std.testing.expectEqual(@as(usize, 3), result.array.items.len);
+    try std.testing.expectEqualStrings("a", result.array.items[0].string);
+    try std.testing.expectEqualStrings("b", result.array.items[1].string);
+    try std.testing.expectEqualStrings("c", result.array.items[2].string);
+}
+
+test "regex.replace" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const result = try replace(arena.allocator(), Args.init(&.{
+        .{ .string = "hello world" },
+        .{ .string = "world" },
+        .{ .string = "zig" },
+    }));
+    try std.testing.expectEqualStrings("hello zig", result.string);
+}
+
+test "regex.is_valid - valid pattern" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
+    const result = try isValid(std.testing.allocator, Args.init(&.{
+        .{ .string = "^foo.*bar$" },
+    }));
+    try std.testing.expect(result.bool);
+}
+
+test "regex.is_valid - invalid pattern" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
+    const result = try isValid(std.testing.allocator, Args.init(&.{
+        .{ .string = "[invalid" },
+    }));
+    try std.testing.expect(!result.bool);
+}
+
+test "regex.globs_match" {
+    const allocator = std.testing.allocator;
+
+    var result = try globsMatch(allocator, Args.init(&.{
+        .{ .string = "*.txt" },
+        .{ .string = "foo.txt" },
+    }));
+    try std.testing.expect(result.bool);
+
+    result = try globsMatch(allocator, Args.init(&.{
+        .{ .string = "foo.*" },
+        .{ .string = "foo.bar" },
+    }));
+    try std.testing.expect(result.bool);
+}
+
 test "regex.template_match" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 

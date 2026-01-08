@@ -30,7 +30,7 @@ pub fn main() !void {
     }
 
     if (std.mem.eql(u8, cmd, "-v") or std.mem.eql(u8, cmd, "--version")) {
-        try stdout.writeAll("opa-zig 0.0.5\n");
+        try stdout.writeAll("opa-zig 0.0.6\n");
         return;
     }
 

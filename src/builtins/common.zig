@@ -8,6 +8,7 @@ pub const BuiltinError = error{
     AllocationFailed,
     UnknownBuiltin,
     SerializationFailed,
+    NotImplemented,
 };
 
 /// Wrapper for accessing builtin arguments with type checking.

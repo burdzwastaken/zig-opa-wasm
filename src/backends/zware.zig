@@ -91,6 +91,9 @@ pub const ZwareBackend = struct {
     }
 
     pub fn deinit(self: *ZwareBackend) void {
+        if (g_opa_context == &self.opa_context) {
+            g_opa_context = null;
+        }
         self.opa_context.reset();
         self.store.deinit();
         self.allocator.destroy(self.store);
@@ -257,11 +260,18 @@ fn moduleInstantiate(
 
     g_opa_context = &zb.opa_context;
 
+    const instance = zb.allocator.create(zware.Instance) catch {
+        return backend.Error.OutOfMemory;
+    };
+    instance.* = zware.Instance.init(zb.allocator, zb.store, data.module);
+
     const instance_data = zb.allocator.create(InstanceData) catch {
+        instance.deinit();
+        zb.allocator.destroy(instance);
         return backend.Error.OutOfMemory;
     };
     instance_data.* = .{
-        .instance = zware.Instance.init(zb.allocator, zb.store, data.module),
+        .instance = instance,
         .module = data,
         .backend = zb,
         .allocator = zb.allocator,
@@ -269,9 +279,9 @@ fn moduleInstantiate(
         .memory_allocations = .{},
     };
 
-    instance_data.instance.instantiate() catch |err| {
-        std.debug.print("zware instantiate error: {}\n", .{err});
-        instance_data.instance.deinit();
+    instance.instantiate() catch {
+        instance.deinit();
+        zb.allocator.destroy(instance);
         zb.allocator.destroy(instance_data);
         return backend.Error.InstanceInit;
     };
@@ -284,7 +294,7 @@ fn moduleInstantiate(
 }
 
 const InstanceData = struct {
-    instance: zware.Instance,
+    instance: *zware.Instance,
     module: *ModuleData,
     backend: *ZwareBackend,
     allocator: std.mem.Allocator,
@@ -311,6 +321,7 @@ fn instanceDeinit(ptr: *anyopaque) void {
     }
     data.memory_allocations.deinit(data.allocator);
     data.instance.deinit();
+    data.allocator.destroy(data.instance);
     data.allocator.destroy(data);
 }
 
@@ -326,7 +337,7 @@ fn instanceGetFunc(ptr: *anyopaque, module_ptr: *anyopaque, name: []const u8) ?b
         return null;
     };
     func_data.* = .{
-        .instance = &data.instance,
+        .instance = data.instance,
         .export_name = name_copy,
     };
     data.func_allocations.append(data.allocator, func_data) catch {
@@ -509,7 +520,7 @@ fn dispatchBuiltin(vm: *zware.VirtualMachine, arg_count: u8) i32 {
     i = 0;
     while (i < arg_count) : (i += 1) {
         const addr = raw_args[2 + i];
-        if (deserializeArg(allocator, ctx, addr)) |val| {
+        if (deserializeArg(ctx, addr)) |val| {
             json_args.append(allocator, val) catch return 0;
         }
     }
@@ -526,16 +537,16 @@ fn dispatchBuiltin(vm: *zware.VirtualMachine, arg_count: u8) i32 {
     return result_addr;
 }
 
-fn deserializeArg(allocator: std.mem.Allocator, ctx: *OpaContext, addr: i32) ?std.json.Value {
-    _ = allocator;
+fn deserializeArg(ctx: *OpaContext, addr: i32) ?std.json.Value {
     const store = ctx.store orelse return null;
     const mem = store.memory(0) catch return null;
-    const mem_slice = mem.memory();
 
-    if (addr <= 0 or addr >= @as(i32, @intCast(mem_slice.len))) return null;
+    if (addr <= 0 or addr >= @as(i32, @intCast(mem.memory().len))) return null;
 
     const json_dump_fn = ctx.json_dump_fn orelse return null;
     const json_addr = json_dump_fn.call1(addr) catch return null;
+
+    const mem_slice = mem.memory();
 
     if (json_addr <= 0 or json_addr >= @as(i32, @intCast(mem_slice.len))) return null;
 
@@ -543,13 +554,8 @@ fn deserializeArg(allocator: std.mem.Allocator, ctx: *OpaContext, addr: i32) ?st
     const end = std.mem.indexOfScalarPos(u8, mem_slice, uaddr, 0) orelse return null;
     const json_str = mem_slice[uaddr..end];
 
-    const parsed = std.json.parseFromSlice(
-        std.json.Value,
-        std.heap.page_allocator,
-        json_str,
-        .{},
-    ) catch return null;
-    return parsed.value;
+    const alloc = ctx.allocator orelse return null;
+    return std.json.parseFromSliceLeaky(std.json.Value, alloc, json_str, .{}) catch null;
 }
 
 fn serializeJsonString(ctx: *OpaContext, json_str: []const u8) !i32 {

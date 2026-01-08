@@ -147,12 +147,13 @@ pub const EvaluationContext = struct {
 
 test "evaluation context creation" {
     const testing = std.testing;
+    const options = @import("options");
     const Policy = @import("policy.zig").Policy;
     const Inst = @import("instance.zig").Instance;
-    const options = @import("options");
     const BackendImpl = switch (options.backend) {
         .wasmer => @import("backends/wasmer.zig").WasmerBackend,
         .zware => @import("backends/zware.zig").ZwareBackend,
+        .freestanding => return,
     };
 
     const wasm_bytes = @embedFile("test_example_wasm");

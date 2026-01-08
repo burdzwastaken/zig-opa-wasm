@@ -130,6 +130,7 @@ test "policy load minimal wasm" {
     const BackendImpl = switch (options.backend) {
         .wasmer => @import("backends/wasmer.zig").WasmerBackend,
         .zware => @import("backends/zware.zig").ZwareBackend,
+        .freestanding => return,
     };
 
     const test_wasm = @embedFile("test_add_wasm");

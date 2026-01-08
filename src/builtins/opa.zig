@@ -1,10 +1,13 @@
 //! OPA runtime builtins (trace, opa.runtime).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const json = std.json;
 const common = @import("common.zig");
 const Args = common.Args;
 const BuiltinError = common.BuiltinError;
+
+var rand_state: u64 = 0x853c49e6748fea9b;
 
 pub fn trace(_: std.mem.Allocator, a: Args) BuiltinError!json.Value {
     _ = a.getString(0) catch {};
@@ -14,7 +17,7 @@ pub fn trace(_: std.mem.Allocator, a: Args) BuiltinError!json.Value {
 pub fn runtime(allocator: std.mem.Allocator, _: Args) BuiltinError!json.Value {
     var obj = json.ObjectMap.init(allocator);
     obj.put("env", .{ .object = json.ObjectMap.init(allocator) }) catch return BuiltinError.AllocationFailed;
-    obj.put("version", .{ .string = "0.0.5" }) catch return BuiltinError.AllocationFailed;
+    obj.put("version", .{ .string = "0.0.6" }) catch return BuiltinError.AllocationFailed;
     obj.put("commit", .{ .string = "" }) catch return BuiltinError.AllocationFailed;
     return .{ .object = obj };
 }
@@ -27,9 +30,8 @@ pub fn randIntn(_: std.mem.Allocator, a: Args) BuiltinError!json.Value {
     _ = a.getString(0) catch {};
     const n = a.getInt(1) catch return BuiltinError.InvalidArguments;
     if (n <= 0) return BuiltinError.InvalidArguments;
-    var prng = std.Random.DefaultPrng.init(@intCast(std.time.nanoTimestamp()));
-    const random = prng.random();
-    const result = random.intRangeLessThan(i64, 0, n);
+    rand_state = rand_state *% 6364136223846793005 +% 1442695040888963407;
+    const result = @mod(@as(i64, @intCast(rand_state >> 33)), n);
     return common.makeNumber(@floatFromInt(result));
 }
 

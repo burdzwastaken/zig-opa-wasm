@@ -43,7 +43,23 @@ jobs:
         run: zig build test -Dbackend=zware
 
       - name: Build (zware wasm32)
-        run: zig build -Dbackend=zware wasm -Doptimize=ReleaseSmall
+        run: zig build -Dbackend=freestanding -Doptimize=ReleaseSmall
+
+      - name: Run tests (zware wasm32)
+        run: zig build test -Dbackend=freestanding
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build test policy
+        run: |
+          opa build -t wasm -e example/result policies/example.rego -o /tmp/bundle.tar.gz
+          tar -xzf /tmp/bundle.tar.gz --transform 's|^/||' -C tests/integration
+          rm -f tests/integration/data.json tests/integration/.manifest
+          rm -rf tests/integration/policies
+
+      - name: Run WASM integration tests
+        run: bun tests/integration/test.ts
 
       - name: Build (wasmer)
         run: zig build -Dbackend=wasmer -Doptimize=ReleaseSafe

@@ -13,7 +13,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_opa_wasm = .{
-        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.5",
+        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.6",
         .hash = "...",
     },
 },
@@ -38,8 +38,8 @@ zig build
 # build with zware (pure Zig)
 zig build -Dbackend=zware
 
-# build with zware (wasm32-freestanding target)
-zig build -Dbackend=zware wasm
+# build for wasm32-freestanding
+zig build -Dbackend=freestanding
 ```
 
 ## CLI
@@ -165,35 +165,17 @@ wasm_backend.setLogCallback(struct {
 The library uses an abstract backend interface allowing different WASM runtimes to be swapped without changing application code.
 
 **Backends:**
-| Backend | Runtime | Use Case |
-|---------|---------|----------|
-| `WasmerBackend` | [Wasmer](https://github.com/zig-wasm/wasmer-zig-api) | Native builds, JIT compilation, best performance |
-| `ZwareBackend` | [zware](https://github.com/burdzwastaken/zware) | Pure Zig interpreter, wasm32-freestanding target |
+| Backend               | Runtime                                              | Use Case                                            |
+|-----------------------|------------------------------------------------------|-----------------------------------------------------|
+| `WasmerBackend`       | [Wasmer](https://github.com/zig-wasm/wasmer-zig-api) | Native builds, JIT compilation, best performance    |
+| `ZwareBackend`        | [zware](https://github.com/malcolmstill/zware)       | Pure Zig interpreter, no C dependencies             |
+| `FreestandingBackend` | [zware](https://github.com/malcolmstill/zware)       | wasm32-freestanding target for browser/JS embedding |
 
-Select backend at build time with `-Dbackend=wasmer` (default) or `-Dbackend=zware`. The zware backend enables compiling zig-opa-wasm itself to WebAssembly (`wasm32-freestanding`). Select with `-Dbackend=zware wasm`.
+Select backend at build time with `-Dbackend=wasmer` (default), `-Dbackend=zware`, or `-Dbackend=freestanding`. The freestanding backend compiles zig-opa-wasm itself to WebAssembly.
 
 ## Supported Builtins
 
-100+ builtins implemented including:
-
-- **Aggregates**: `count`, `sum`, `product`, `max`, `min`
-- **Arrays**: `array.concat`, `array.slice`, `array.reverse`, `sort`, `walk`
-- **Bits**: `bits.and`, `bits.or`, `bits.xor`, `bits.negate`, `bits.lsh`, `bits.rsh`
-- **Crypto**: `crypto.md5`, `crypto.sha1`, `crypto.sha256`
-- **Encoding**: `base64.encode/decode/is_valid`, `hex.encode/decode`, `json.marshal/unmarshal`, `json.patch`, `urlquery.encode/decode`, `urlquery.encode_object/decode_object`, `yaml.marshal/unmarshal`
-- **Glob**: `glob.match`
-- **Graph**: `graph.reachable`, `graph.reachable_paths`
-- **Net**: `net.cidr_contains`, `net.cidr_intersects`, `net.cidr_merge`, `net.cidr_expand`, `net.cidr_is_valid`, `net.lookup_ip_addr`
-- **Numbers**: `abs`, `round`, `ceil`, `floor`, `numbers.range`, `numbers.range_step`, `rand`, `to_number`
-- **Objects**: `object.get`, `object.keys`, `object.remove`, `object.union`, `object.filter`, `object.subset`, `json.filter`, `json.remove`
-- **Regex**: `regex.match`, `regex.split`, `regex.find_n`, `regex.find_all_string_submatch_n`, `regex.is_valid`, `regex.globs_match`, `regex.template_match`
-- **Semver**: `semver.compare`, `semver.is_valid`
-- **Strings**: `concat`, `contains`, `sprintf`, `split`, `trim`, `lower`, `upper`, `indexof`, `substring`, `replace`, `strings.count`, `strings.reverse`, `strings.any_prefix_match`, `strings.any_suffix_match`, `strings.render_template`
-- **Time**: `time.now_ns`, `time.parse_ns`, `time.parse_rfc3339_ns`, `time.parse_duration_ns`, `time.date`, `time.clock`, `time.weekday`, `time.diff`, `time.format`, `time.add_date`
-- **Types**: `is_string`, `is_number`, `is_array`, `is_object`, `is_set`, `is_null`, `is_boolean`, `type_name`, `to_number`
-- **Units**: `units.parse`, `units.parse_bytes`
-- **UUID**: `uuid.rfc4122`, `uuid.parse`
-- **Misc**: `print`, `opa.runtime`, `trace`
+100+ builtins implemented depending on the backend.
 
 ## License
 

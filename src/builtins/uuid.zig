@@ -1,12 +1,15 @@
 //! OPA UUID generation builtins.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const common = @import("common.zig");
 const Args = common.Args;
 const BuiltinError = common.BuiltinError;
-const zul = @import("zul");
+
+const zul = if (builtin.os.tag == .freestanding) struct {} else @import("zul");
 
 pub fn rfc4122(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const variant = try args.getString(0);
     const uuid = if (std.mem.eql(u8, variant, "v4"))
         zul.UUID.v4()
@@ -19,6 +22,7 @@ pub fn rfc4122(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.V
 }
 
 pub fn parse(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
+    if (builtin.os.tag == .freestanding) return error.NotImplemented;
     const uuid_str = try args.getString(0);
 
     const uuid = zul.UUID.parse(uuid_str) catch return error.InvalidArguments;
@@ -44,6 +48,7 @@ pub fn parse(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Val
 }
 
 test "uuid.rfc4122 v4" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
@@ -55,6 +60,7 @@ test "uuid.rfc4122 v4" {
 }
 
 test "uuid.parse" {
+    if (builtin.os.tag == .freestanding) return error.SkipZigTest;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 

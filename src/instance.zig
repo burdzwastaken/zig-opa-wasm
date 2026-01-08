@@ -9,10 +9,12 @@ const MemoryManager = @import("memory/manager.zig").MemoryManager;
 const BackendImpl = switch (options.backend) {
     .wasmer => @import("backends/wasmer.zig").WasmerBackend,
     .zware => @import("backends/zware.zig").ZwareBackend,
+    .freestanding => @import("backends/freestanding.zig").FreestandingBackend,
 };
 const LogLevel = switch (options.backend) {
     .wasmer => @import("backends/wasmer.zig").LogLevel,
     .zware => @import("backends/zware.zig").LogLevel,
+    .freestanding => @import("backends/freestanding.zig").LogLevel,
 };
 
 /// A live OPA WASM instance ready for policy evaluation.
@@ -296,6 +298,7 @@ pub const InstancePool = struct {
 const testing = std.testing;
 
 test "instantiate OPA policy module" {
+    if (options.backend == .freestanding) return;
     const wasm_bytes = @embedFile("test_example_wasm");
     var wasm_backend = try BackendImpl.init(testing.allocator);
     defer wasm_backend.deinit();
@@ -311,6 +314,7 @@ test "instantiate OPA policy module" {
 }
 
 test "evaluate policy - admin allowed" {
+    if (options.backend == .freestanding) return;
     const wasm_bytes = @embedFile("test_example_wasm");
     var wasm_backend = try BackendImpl.init(testing.allocator);
     defer wasm_backend.deinit();
@@ -329,6 +333,7 @@ test "evaluate policy - admin allowed" {
 }
 
 test "evaluate policy - guest denied" {
+    if (options.backend == .freestanding) return;
     const wasm_bytes = @embedFile("test_example_wasm");
     var wasm_backend = try BackendImpl.init(testing.allocator);
     defer wasm_backend.deinit();
@@ -347,6 +352,7 @@ test "evaluate policy - guest denied" {
 }
 
 test "policy with builtins - sprintf" {
+    if (options.backend == .freestanding) return;
     const wasm_bytes = @embedFile("test_builtin_wasm");
     var wasm_backend = try BackendImpl.init(testing.allocator);
     defer wasm_backend.deinit();
@@ -374,6 +380,7 @@ test "policy with builtins - sprintf" {
 }
 
 test "instance pool acquire and release" {
+    if (options.backend == .freestanding) return;
     const wasm_bytes = @embedFile("test_example_wasm");
     var wasm_backend = try BackendImpl.init(testing.allocator);
     defer wasm_backend.deinit();
@@ -400,6 +407,7 @@ test "instance pool acquire and release" {
 
 // Regression test: OpaContext must have builtins and WASM functions connected for custom builtins to work.
 test "builtins are connected to backend context" {
+    if (options.backend == .freestanding) return;
     const wasm_bytes = @embedFile("test_builtin_wasm");
     var wasm_backend = try BackendImpl.init(testing.allocator);
     defer wasm_backend.deinit();

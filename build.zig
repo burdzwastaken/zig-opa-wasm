@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Backend = enum { wasmer, zware };
+const Backend = enum { wasmer, zware, freestanding };
 
 fn compileRego(b: *std.Build, policy_path: []const u8, entrypoints: []const []const u8) std.Build.LazyPath {
     const opa_build = b.addSystemCommand(&.{ "opa", "build", "-t", "wasm" });
@@ -76,7 +76,7 @@ pub fn build(b: *std.Build) void {
         .wasmer => {
             lib_mod.addImport("wasmer", wasmer_dep.module("wasmer"));
         },
-        .zware => {
+        .zware, .freestanding => {
             lib_mod.addImport("zware", zware_dep.module("zware"));
         },
     }
@@ -116,9 +116,12 @@ pub fn build(b: *std.Build) void {
             exe.use_llvm = true;
             exe.stack_size = 64 * 1024 * 1024;
         },
+        .freestanding => {},
     }
 
-    b.installArtifact(exe);
+    if (backend != .freestanding) {
+        b.installArtifact(exe);
+    }
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -150,6 +153,7 @@ pub fn build(b: *std.Build) void {
             lib_tests.linkSystemLibrary("wasmer");
         },
         .zware => {},
+        .freestanding => {},
     }
 
     const run_lib_tests = b.addRunArtifact(lib_tests);
@@ -157,10 +161,15 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_tests.step);
 
-    if (backend == .zware) {
+    if (backend == .freestanding) {
         const wasm_target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .os_tag = .freestanding,
+        });
+
+        const wasm_zware_dep = b.dependency("zware", .{
+            .target = wasm_target,
+            .optimize = .ReleaseSmall,
         });
 
         const wasm_lib_mod = b.addModule("zig_opa_wasm_lib", .{
@@ -168,7 +177,7 @@ pub fn build(b: *std.Build) void {
             .target = wasm_target,
             .optimize = .ReleaseSmall,
         });
-        wasm_lib_mod.addImport("zware", zware_dep.module("zware"));
+        wasm_lib_mod.addImport("zware", wasm_zware_dep.module("zware"));
 
         const wasm_lib = b.addExecutable(.{
             .name = "zig-opa-wasm",
@@ -176,13 +185,11 @@ pub fn build(b: *std.Build) void {
         });
         wasm_lib.entry = .disabled;
         wasm_lib.rdynamic = true;
-        wasm_lib.stack_size = 1 * 1024 * 1024;
-        wasm_lib.initial_memory = 16 * 1024 * 1024;
+        wasm_lib.stack_size = 256 * 1024;
+        wasm_lib.initial_memory = 24 * 1024 * 1024;
         wasm_lib.max_memory = 32 * 1024 * 1024;
 
-        const install_wasm = b.addInstallArtifact(wasm_lib, .{});
-        const wasm_step = b.step("wasm", "Build WASM library");
-        wasm_step.dependOn(&install_wasm.step);
+        b.installArtifact(wasm_lib);
     }
 
     if (backend == .wasmer) {

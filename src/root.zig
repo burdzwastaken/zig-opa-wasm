@@ -7,11 +7,13 @@ const options = @import("options");
 pub const backends = struct {
     pub const backend = @import("backends/backend.zig");
     pub const wasmer = if (options.backend == .wasmer) @import("backends/wasmer.zig") else struct {};
-    pub const zware = if (options.backend == .zware) @import("backends/zware.zig") else struct {};
+    pub const zware = if (options.backend == .zware or options.backend == .freestanding) @import("backends/zware.zig") else struct {};
+    pub const freestanding = if (options.backend == .freestanding) @import("backends/freestanding.zig") else struct {};
 
     pub const Backend = backend.Backend;
     pub const WasmerBackend = if (options.backend == .wasmer) wasmer.WasmerBackend else void;
     pub const ZwareBackend = if (options.backend == .zware) zware.ZwareBackend else void;
+    pub const FreestandingBackend = if (options.backend == .freestanding) freestanding.FreestandingBackend else void;
 };
 
 pub const memory = struct {
@@ -37,10 +39,12 @@ pub const Bundle = bundle.Bundle;
 pub const Backend = switch (options.backend) {
     .wasmer => backends.WasmerBackend,
     .zware => backends.ZwareBackend,
+    .freestanding => backends.FreestandingBackend,
 };
 pub const BackendInterface = backends.Backend;
 pub const WasmerBackend = backends.WasmerBackend;
 pub const ZwareBackend = backends.ZwareBackend;
+pub const FreestandingBackend = backends.FreestandingBackend;
 pub const MemoryManager = memory.MemoryManager;
 
 test {

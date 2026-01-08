@@ -165,8 +165,30 @@ fn parseCidrOrIp(s: []const u8) ?Network {
 }
 
 fn parseIpv4(s: []const u8) ?u32 {
-    const addr = std.net.Ip4Address.parse(s, 0) catch return null;
-    return std.mem.bigToNative(u32, addr.sa.addr);
+    var result: u32 = 0;
+    var octet: u32 = 0;
+    var octet_count: u8 = 0;
+    var digit_count: u8 = 0;
+
+    for (s) |c| {
+        if (c == '.') {
+            if (digit_count == 0 or octet > 255) return null;
+            result = (result << 8) | octet;
+            octet = 0;
+            octet_count += 1;
+            digit_count = 0;
+            if (octet_count > 3) return null;
+        } else if (c >= '0' and c <= '9') {
+            octet = octet * 10 + (c - '0');
+            digit_count += 1;
+            if (digit_count > 3) return null;
+        } else {
+            return null;
+        }
+    }
+
+    if (digit_count == 0 or octet > 255 or octet_count != 3) return null;
+    return (result << 8) | octet;
 }
 
 fn formatIp4(allocator: std.mem.Allocator, addr: u32) ![]const u8 {

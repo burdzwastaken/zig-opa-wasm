@@ -16,9 +16,8 @@ const ns_per_day = std.time.ns_per_day;
 const s_per_day = std.time.s_per_day;
 
 pub fn nowNs(_: std.mem.Allocator, _: Args) BuiltinError!std.json.Value {
-    if (builtin.os.tag == .freestanding) return error.NotImplemented;
-    const ns = std.time.nanoTimestamp();
-    return .{ .integer = @intCast(ns) };
+    if (comptime builtin.os.tag == .freestanding) return error.NotImplemented;
+    return .{ .integer = @intCast(std.time.nanoTimestamp()) };
 }
 
 pub fn parseRfc3339Ns(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
