@@ -43,6 +43,7 @@
             pkgs.open-policy-agent
             pkgs.zig
             pkgs.zls
+            pkgs.wabt
             wasmer
           ];
 
@@ -51,11 +52,12 @@
           shellHook = ''
             echo "zig-opa-wasm development environment"
             echo ""
-            echo "  go:     $(go version)"
-            echo "  opa:    $(opa version | grep '^Version:' | cut -d' ' -f2)"
-            echo "  wasmer: $(wasmer --version 2>/dev/null | cut -d' ' -f2 || echo 'binary')"
-            echo "  zig:    $(zig version)"
-            echo "  zls:    $(zls --version)"
+            echo "  go:       $(go version)"
+            echo "  opa:      $(opa version | grep '^Version:' | cut -d' ' -f2)"
+            echo "  wasmer:   $(wasmer --version 2>/dev/null | cut -d' ' -f2 || echo 'binary')"
+            echo "  wasm2wat: $(wasm2wat --version)"
+            echo "  zig:      $(zig version)"
+            echo "  zls:      $(zls --version)"
             echo ""
           '';
         };

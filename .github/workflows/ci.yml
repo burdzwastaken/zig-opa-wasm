@@ -39,14 +39,17 @@ jobs:
       - name: Build (zware native)
         run: zig build -Dbackend=zware -Doptimize=ReleaseSafe
 
+      - name: Run tests (zware native)
+        run: zig build test -Dbackend=zware
+
       - name: Build (zware wasm32)
         run: zig build -Dbackend=zware wasm -Doptimize=ReleaseSmall
 
       - name: Build (wasmer)
-        run: zig build -Doptimize=ReleaseSafe
+        run: zig build -Dbackend=wasmer -Doptimize=ReleaseSafe
 
-      - name: Run tests
-        run: zig build test
+      - name: Run tests (wasmer)
+        run: zig build test -Dbackend=wasmer
 
       - name: Setup Go
         uses: actions/setup-go@v5

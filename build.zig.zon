@@ -26,7 +26,7 @@
         },
         .zware = .{
             .url = "https://github.com/burdzwastaken/zware/archive/refs/heads/master.tar.gz",
-            .hash = "zware-0.0.1-ZA7j6dLpBAAIiASxs8G9aOkUqRNDjEtBrblF5QvgoNVV",
+            .hash = "zware-0.0.1-ZA7j6U_qBAAfIr6ZENpSVSzxpBG5nDG9xxqx_cAi6IDC",
         },
     },
     .paths = .{

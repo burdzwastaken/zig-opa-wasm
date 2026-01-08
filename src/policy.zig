@@ -126,12 +126,16 @@ fn freeStringMap(allocator: std.mem.Allocator, map: *std.StringHashMapUnmanaged(
 
 test "policy load minimal wasm" {
     const testing = std.testing;
-    const wasmer = @import("backends/wasmer.zig");
+    const options = @import("options");
+    const BackendImpl = switch (options.backend) {
+        .wasmer => @import("backends/wasmer.zig").WasmerBackend,
+        .zware => @import("backends/zware.zig").ZwareBackend,
+    };
 
     const test_wasm = @embedFile("test_add_wasm");
 
-    var wasm_backend = wasmer.WasmerBackend.init(testing.allocator) catch |err| {
-        std.debug.print("Wasmer init failed: {}\n", .{err});
+    var wasm_backend = BackendImpl.init(testing.allocator) catch |err| {
+        std.debug.print("Backend init failed: {}\n", .{err});
         return err;
     };
     defer wasm_backend.deinit();

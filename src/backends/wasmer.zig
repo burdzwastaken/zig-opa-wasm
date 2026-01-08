@@ -535,6 +535,7 @@ fn serializeResult(allocator: std.mem.Allocator, ctx: *OpaContext, value: std.js
 }
 
 test "wasmer backend init" {
+    if (!is_wasmer) return;
     var wb = try WasmerBackend.init(std.testing.allocator);
     defer wb.deinit();
 
@@ -543,6 +544,7 @@ test "wasmer backend init" {
 }
 
 test "wasmer load and instantiate module" {
+    if (!is_wasmer) return;
     const wasm_bytes = @embedFile("test_add_wasm");
     var wb = try WasmerBackend.init(std.testing.allocator);
     defer wb.deinit();

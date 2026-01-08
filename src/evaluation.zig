@@ -149,13 +149,17 @@ test "evaluation context creation" {
     const testing = std.testing;
     const Policy = @import("policy.zig").Policy;
     const Inst = @import("instance.zig").Instance;
-    const WasmerBackend = @import("backends/wasmer.zig").WasmerBackend;
+    const options = @import("options");
+    const BackendImpl = switch (options.backend) {
+        .wasmer => @import("backends/wasmer.zig").WasmerBackend,
+        .zware => @import("backends/zware.zig").ZwareBackend,
+    };
 
     const wasm_bytes = @embedFile("test_example_wasm");
-    var wasmer_backend = try WasmerBackend.init(testing.allocator);
-    defer wasmer_backend.deinit();
+    var wasm_backend = try BackendImpl.init(testing.allocator);
+    defer wasm_backend.deinit();
 
-    var b = wasmer_backend.asBackend();
+    var b = wasm_backend.asBackend();
     var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
     defer policy.deinit();
 

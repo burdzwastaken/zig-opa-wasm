@@ -2,9 +2,18 @@
 
 const std = @import("std");
 const backend = @import("backends/backend.zig");
-const wasmer = @import("backends/wasmer.zig");
+const options = @import("options");
 const Policy = @import("policy.zig").Policy;
 const MemoryManager = @import("memory/manager.zig").MemoryManager;
+
+const BackendImpl = switch (options.backend) {
+    .wasmer => @import("backends/wasmer.zig").WasmerBackend,
+    .zware => @import("backends/zware.zig").ZwareBackend,
+};
+const LogLevel = switch (options.backend) {
+    .wasmer => @import("backends/wasmer.zig").LogLevel,
+    .zware => @import("backends/zware.zig").LogLevel,
+};
 
 /// A live OPA WASM instance ready for policy evaluation.
 pub const Instance = struct {
@@ -124,10 +133,10 @@ pub const Instance = struct {
         return self.evaluateById(entrypoint_id, input_json);
     }
 
-    fn log(self: *Self, level: @import("backends/wasmer.zig").LogLevel, comptime fmt: []const u8, args: anytype) void {
+    fn log(self: *Self, level: LogLevel, comptime fmt: []const u8, args: anytype) void {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
-        self.getWasmerBackend().opa_context.log(level, msg);
+        self.getBackend().opa_context.log(level, msg);
     }
 
     /// Looks up a builtin function name by its numeric ID.
@@ -141,9 +150,9 @@ pub const Instance = struct {
 
     /// Evaluates a policy by entrypoint ID with the given JSON input.
     pub fn evaluateById(self: *Self, entrypoint_id: u32, input_json: []const u8) ![]const u8 {
-        const wasmer_backend = self.getWasmerBackend();
-        wasmer_backend.setBuiltins(&self.builtins);
-        wasmer_backend.setOpaFunctions(
+        const backend_impl = self.getBackend();
+        backend_impl.setBuiltins(&self.builtins);
+        backend_impl.setOpaFunctions(
             self.memory_manager.opa_malloc_fn,
             self.memory_manager.opa_json_parse_fn,
             self.memory_manager.opa_json_dump_fn,
@@ -205,18 +214,18 @@ pub const Instance = struct {
     } || MemoryManager.Error;
 
     pub fn wasAborted(self: *Self) bool {
-        return self.getWasmerBackend().wasAborted();
+        return self.getBackend().wasAborted();
     }
 
     pub fn getAbortMessage(self: *Self) ?[]const u8 {
-        return self.getWasmerBackend().getAbortMessage();
+        return self.getBackend().getAbortMessage();
     }
 
     pub fn clearAbort(self: *Self) void {
-        self.getWasmerBackend().clearAbort();
+        self.getBackend().clearAbort();
     }
 
-    fn getWasmerBackend(self: *Self) *wasmer.WasmerBackend {
+    fn getBackend(self: *Self) *BackendImpl {
         return @ptrCast(@alignCast(self.policy.module.backend_ptr));
     }
 };
@@ -285,14 +294,13 @@ pub const InstancePool = struct {
 };
 
 const testing = std.testing;
-const WasmerBackend = @import("backends/wasmer.zig").WasmerBackend;
 
 test "instantiate OPA policy module" {
     const wasm_bytes = @embedFile("test_example_wasm");
-    var wasmer_backend = try WasmerBackend.init(testing.allocator);
-    defer wasmer_backend.deinit();
+    var wasm_backend = try BackendImpl.init(testing.allocator);
+    defer wasm_backend.deinit();
 
-    var b = wasmer_backend.asBackend();
+    var b = wasm_backend.asBackend();
     var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
     defer policy.deinit();
 
@@ -304,10 +312,10 @@ test "instantiate OPA policy module" {
 
 test "evaluate policy - admin allowed" {
     const wasm_bytes = @embedFile("test_example_wasm");
-    var wasmer_backend = try WasmerBackend.init(testing.allocator);
-    defer wasmer_backend.deinit();
+    var wasm_backend = try BackendImpl.init(testing.allocator);
+    defer wasm_backend.deinit();
 
-    var b = wasmer_backend.asBackend();
+    var b = wasm_backend.asBackend();
     var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
     defer policy.deinit();
 
@@ -322,10 +330,10 @@ test "evaluate policy - admin allowed" {
 
 test "evaluate policy - guest denied" {
     const wasm_bytes = @embedFile("test_example_wasm");
-    var wasmer_backend = try WasmerBackend.init(testing.allocator);
-    defer wasmer_backend.deinit();
+    var wasm_backend = try BackendImpl.init(testing.allocator);
+    defer wasm_backend.deinit();
 
-    var b = wasmer_backend.asBackend();
+    var b = wasm_backend.asBackend();
     var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
     defer policy.deinit();
 
@@ -340,10 +348,10 @@ test "evaluate policy - guest denied" {
 
 test "policy with builtins - sprintf" {
     const wasm_bytes = @embedFile("test_builtin_wasm");
-    var wasmer_backend = try WasmerBackend.init(testing.allocator);
-    defer wasmer_backend.deinit();
+    var wasm_backend = try BackendImpl.init(testing.allocator);
+    defer wasm_backend.deinit();
 
-    var b = wasmer_backend.asBackend();
+    var b = wasm_backend.asBackend();
     var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
     defer policy.deinit();
 
@@ -367,10 +375,10 @@ test "policy with builtins - sprintf" {
 
 test "instance pool acquire and release" {
     const wasm_bytes = @embedFile("test_example_wasm");
-    var wasmer_backend = try WasmerBackend.init(testing.allocator);
-    defer wasmer_backend.deinit();
+    var wasm_backend = try BackendImpl.init(testing.allocator);
+    defer wasm_backend.deinit();
 
-    var b = wasmer_backend.asBackend();
+    var b = wasm_backend.asBackend();
     var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
     defer policy.deinit();
 
@@ -393,10 +401,10 @@ test "instance pool acquire and release" {
 // Regression test: OpaContext must have builtins and WASM functions connected for custom builtins to work.
 test "builtins are connected to backend context" {
     const wasm_bytes = @embedFile("test_builtin_wasm");
-    var wasmer_backend = try WasmerBackend.init(testing.allocator);
-    defer wasmer_backend.deinit();
+    var wasm_backend = try BackendImpl.init(testing.allocator);
+    defer wasm_backend.deinit();
 
-    var b = wasmer_backend.asBackend();
+    var b = wasm_backend.asBackend();
     var policy = try Policy.load(testing.allocator, &b, wasm_bytes);
     defer policy.deinit();
 
@@ -411,8 +419,8 @@ test "builtins are connected to backend context" {
         try testing.expect(res.len > 0);
     } else |_| {}
 
-    try testing.expect(wasmer_backend.opa_context.builtins != null);
-    try testing.expect(wasmer_backend.opa_context.json_dump_fn != null);
-    try testing.expect(wasmer_backend.opa_context.json_parse_fn != null);
-    try testing.expect(wasmer_backend.opa_context.malloc_fn != null);
+    try testing.expect(wasm_backend.opa_context.builtins != null);
+    try testing.expect(wasm_backend.opa_context.json_dump_fn != null);
+    try testing.expect(wasm_backend.opa_context.json_parse_fn != null);
+    try testing.expect(wasm_backend.opa_context.malloc_fn != null);
 }
