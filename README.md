@@ -13,7 +13,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_opa_wasm = .{
-        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.6",
+        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.7",
         .hash = "...",
     },
 },

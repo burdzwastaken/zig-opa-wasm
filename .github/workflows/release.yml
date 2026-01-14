@@ -1,0 +1,177 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: "0.15.2"
+
+jobs:
+  build-zware:
+    name: Build zware - ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            os: ubuntu-latest
+            zig_target: x86_64-linux-gnu
+            ext: tar.gz
+          - target: aarch64-linux
+            os: ubuntu-latest
+            zig_target: aarch64-linux-gnu
+            ext: tar.gz
+          - target: x86_64-macos
+            os: macos-latest
+            zig_target: x86_64-macos
+            ext: tar.gz
+          - target: aarch64-macos
+            os: macos-latest
+            zig_target: aarch64-macos
+            ext: tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install OPA
+        uses: open-policy-agent/setup-opa@v2
+
+      - name: Build
+        run: |
+          zig build -Dbackend=zware -Doptimize=ReleaseSafe -Dtarget=${{ matrix.zig_target }}
+
+      - name: Package
+        run: |
+          cd zig-out/bin
+          tar -czvf ../../opa-zig-zware-${{ matrix.target }}.tar.gz opa-zig*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opa-zig-zware-${{ matrix.target }}
+          path: opa-zig-zware-${{ matrix.target }}.tar.gz
+
+  build-wasmer:
+    name: Build wasmer - ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            os: ubuntu-latest
+            wasmer_target: linux-amd64
+            ext: tar.gz
+          - target: aarch64-linux
+            os: ubuntu-latest
+            wasmer_target: linux-aarch64
+            ext: tar.gz
+          - target: x86_64-macos
+            os: macos-15-intel
+            wasmer_target: darwin-amd64
+            ext: tar.gz
+          - target: aarch64-macos
+            os: macos-latest
+            wasmer_target: darwin-arm64
+            ext: tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install OPA
+        uses: open-policy-agent/setup-opa@v2
+
+      - name: Install Wasmer
+        run: |
+          curl https://get.wasmer.io -sSfL | sh
+          echo "$HOME/.wasmer/bin" >> $GITHUB_PATH
+          echo "WASMER_DIR=$HOME/.wasmer" >> $GITHUB_ENV
+
+      - name: Build
+        run: zig build -Dbackend=wasmer -Doptimize=ReleaseSafe
+
+      - name: Package
+        run: |
+          cd zig-out/bin
+          tar -czvf ../../opa-zig-wasmer-${{ matrix.target }}.tar.gz opa-zig*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opa-zig-wasmer-${{ matrix.target }}
+          path: opa-zig-wasmer-${{ matrix.target }}.tar.gz
+
+  build-wasm:
+    name: Build WASM library
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build
+        run: |
+          zig build -Dbackend=freestanding -Doptimize=ReleaseSmall
+
+      - name: Package
+        run: |
+          cd zig-out/bin
+          tar -czvf ../../zig-opa-wasm.tar.gz zig-opa-wasm.wasm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zig-opa-wasm
+          path: zig-opa-wasm.tar.gz
+
+  release:
+    name: Create Release
+    needs: [build-zware, build-wasmer, build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f -name "*.tar.gz" -exec mv {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

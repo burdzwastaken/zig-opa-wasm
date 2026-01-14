@@ -6,14 +6,13 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  ZIG_VERSION: "0.15.2"
+
 jobs:
   lint-build-test:
     name: Build and Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        zig-version: ['0.15.2']
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -22,7 +21,7 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: ${{ matrix.zig-version }}
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Install Wasmer
         run: |

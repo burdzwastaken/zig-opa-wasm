@@ -1,6 +1,6 @@
 .{
     .name = .zig_opa_wasm,
-    .version = "0.0.6",
+    .version = "0.0.7",
     .fingerprint = 0x14457ed2e73dd11e,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
