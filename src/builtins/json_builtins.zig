@@ -55,10 +55,10 @@ pub fn jsonFilter(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.V
     const obj = try a.getObject(0);
     const paths = try a.getSetOrArray(1);
 
-    var result = std.json.ObjectMap.init(allocator);
+    var result = std.json.ObjectMap.empty;
     for (paths) |path_val| {
         const path = extractPath(path_val) orelse continue;
-        if (obj.get(path)) |val| result.put(path, val) catch return error.AllocationFailed;
+        if (obj.get(path)) |val| result.put(allocator, path, val) catch return error.AllocationFailed;
     }
     return .{ .object = result };
 }
@@ -74,11 +74,11 @@ pub fn jsonRemove(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.V
         keys_to_remove.put(path, {}) catch return error.AllocationFailed;
     }
 
-    var result = std.json.ObjectMap.init(allocator);
+    var result = std.json.ObjectMap.empty;
     var it = obj.iterator();
     while (it.next()) |entry| {
         if (!keys_to_remove.contains(entry.key_ptr.*)) {
-            result.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
+            result.put(allocator, entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
         }
     }
     return .{ .object = result };
@@ -108,36 +108,36 @@ pub fn jsonPatch(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Va
     return obj;
 }
 
-fn applyPatchOp(allocator: std.mem.Allocator, obj: std.json.Value, path: []const u8, value: ?std.json.Value, remove: bool) !std.json.Value {
+fn applyPatchOp(allocator: std.mem.Allocator, obj: std.json.Value, path: []const u8, value: ?std.json.Value, do_remove: bool) !std.json.Value {
     if (path.len == 0 or std.mem.eql(u8, path, "/")) {
-        return if (remove) .null else (value orelse .null);
+        return if (do_remove) .null else (value orelse .null);
     }
 
     const clean_path = if (path[0] == '/') path[1..] else path;
-    const sep_idx = std.mem.indexOf(u8, clean_path, "/");
+    const sep_idx = std.mem.find(u8, clean_path, "/");
     const key = if (sep_idx) |idx| clean_path[0..idx] else clean_path;
     const rest = if (sep_idx) |idx| clean_path[idx..] else "";
 
     switch (obj) {
         .object => |o| {
-            var new_obj = std.json.ObjectMap.init(allocator);
+            var new_obj = std.json.ObjectMap.empty;
             var it = o.iterator();
             while (it.next()) |entry| {
                 if (std.mem.eql(u8, entry.key_ptr.*, key)) {
                     if (rest.len == 0) {
-                        if (!remove) {
-                            try new_obj.put(key, value orelse .null);
+                        if (!do_remove) {
+                            try new_obj.put(allocator, key, value orelse .null);
                         }
                     } else {
-                        const nested = try applyPatchOp(allocator, entry.value_ptr.*, rest, value, remove);
-                        try new_obj.put(key, nested);
+                        const nested = try applyPatchOp(allocator, entry.value_ptr.*, rest, value, do_remove);
+                        try new_obj.put(allocator, key, nested);
                     }
                 } else {
-                    try new_obj.put(entry.key_ptr.*, entry.value_ptr.*);
+                    try new_obj.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
                 }
             }
-            if (rest.len == 0 and !remove and o.get(key) == null) {
-                try new_obj.put(key, value orelse .null);
+            if (rest.len == 0 and !do_remove and o.get(key) == null) {
+                try new_obj.put(allocator, key, value orelse .null);
             }
             return .{ .object = new_obj };
         },
@@ -146,19 +146,20 @@ fn applyPatchOp(allocator: std.mem.Allocator, obj: std.json.Value, path: []const
 }
 
 test "json.filter" {
-    var obj = std.json.ObjectMap.init(std.testing.allocator);
-    defer obj.deinit();
-    try obj.put("a", .{ .integer = 1 });
-    try obj.put("b", .{ .integer = 2 });
-    try obj.put("c", .{ .integer = 3 });
+    const alloc = std.testing.allocator;
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(alloc);
+    try obj.put(alloc, "a", .{ .integer = 1 });
+    try obj.put(alloc, "b", .{ .integer = 2 });
+    try obj.put(alloc, "c", .{ .integer = 3 });
 
-    var paths = std.json.Array.init(std.testing.allocator);
+    var paths = std.json.Array.init(alloc);
     defer paths.deinit();
     try paths.append(.{ .string = "a" });
     try paths.append(.{ .string = "c" });
 
-    var result = try jsonFilter(std.testing.allocator, Args.init(&.{ .{ .object = obj }, .{ .array = paths } }));
-    defer result.object.deinit();
+    var result = try jsonFilter(alloc, Args.init(&.{ .{ .object = obj }, .{ .array = paths } }));
+    defer result.object.deinit(alloc);
 
     try std.testing.expect(result.object.count() == 2);
     try std.testing.expect(result.object.get("a") != null);
@@ -167,18 +168,19 @@ test "json.filter" {
 }
 
 test "json.remove" {
-    var obj = std.json.ObjectMap.init(std.testing.allocator);
-    defer obj.deinit();
-    try obj.put("a", .{ .integer = 1 });
-    try obj.put("b", .{ .integer = 2 });
-    try obj.put("c", .{ .integer = 3 });
+    const alloc = std.testing.allocator;
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(alloc);
+    try obj.put(alloc, "a", .{ .integer = 1 });
+    try obj.put(alloc, "b", .{ .integer = 2 });
+    try obj.put(alloc, "c", .{ .integer = 3 });
 
-    var paths = std.json.Array.init(std.testing.allocator);
+    var paths = std.json.Array.init(alloc);
     defer paths.deinit();
     try paths.append(.{ .string = "b" });
 
-    var result = try jsonRemove(std.testing.allocator, Args.init(&.{ .{ .object = obj }, .{ .array = paths } }));
-    defer result.object.deinit();
+    var result = try jsonRemove(alloc, Args.init(&.{ .{ .object = obj }, .{ .array = paths } }));
+    defer result.object.deinit(alloc);
 
     try std.testing.expect(result.object.count() == 2);
     try std.testing.expect(result.object.get("a") != null);
@@ -196,13 +198,14 @@ pub fn jsonMarshalWithOptions(allocator: std.mem.Allocator, a: Args) BuiltinErro
 test "json.marshal_with_options" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
+    const allocator = arena.allocator();
 
-    var opts = std.json.ObjectMap.init(arena.allocator());
-    try opts.put("pretty", .{ .bool = true });
+    var opts = std.json.ObjectMap.empty;
+    try opts.put(allocator, "pretty", .{ .bool = true });
 
-    var obj = std.json.ObjectMap.init(arena.allocator());
-    try obj.put("a", .{ .integer = 1 });
+    var obj = std.json.ObjectMap.empty;
+    try obj.put(allocator, "a", .{ .integer = 1 });
 
-    const result = try jsonMarshalWithOptions(arena.allocator(), Args.init(&.{ .{ .object = obj }, .{ .object = opts } }));
+    const result = try jsonMarshalWithOptions(allocator, Args.init(&.{ .{ .object = obj }, .{ .object = opts } }));
     try std.testing.expect(result.string.len > 0);
 }

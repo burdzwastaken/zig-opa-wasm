@@ -17,7 +17,10 @@ const s_per_day = std.time.s_per_day;
 
 pub fn nowNs(_: std.mem.Allocator, _: Args) BuiltinError!std.json.Value {
     if (comptime builtin.os.tag == .freestanding) return error.NotImplemented;
-    return .{ .integer = @intCast(std.time.nanoTimestamp()) };
+    var ts: std.os.linux.timespec = undefined;
+    _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+    const nanos: i64 = @intCast(@as(i128, ts.sec) * std.time.ns_per_s + ts.nsec);
+    return .{ .integer = nanos };
 }
 
 pub fn parseRfc3339Ns(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
@@ -350,7 +353,7 @@ fn parseDuration(str: []const u8) !i64 {
 
         const multiplier = duration_units.get(unit) orelse return error.InvalidFormat;
 
-        if (std.mem.indexOf(u8, num_str, ".")) |_| {
+        if (std.mem.find(u8, num_str, ".")) |_| {
             const val = std.fmt.parseFloat(f64, num_str) catch return error.InvalidFormat;
             total_ns += @intFromFloat(val * @as(f64, @floatFromInt(multiplier)));
         } else {
@@ -421,28 +424,35 @@ pub fn format(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Va
 
     const dt = nsToDateTime(ns);
 
-    var result: std.ArrayListUnmanaged(u8) = .{};
+    var result: std.ArrayListUnmanaged(u8) = .empty;
     defer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < layout.len) {
+        var buf: [8]u8 = undefined;
         if (i + 4 <= layout.len and std.mem.eql(u8, layout[i .. i + 4], "2006")) {
-            result.writer(allocator).print("{d:0>4}", .{@as(u32, @intCast(if (dt.year < 0) -dt.year else dt.year))}) catch return error.AllocationFailed;
+            const s = std.fmt.bufPrint(&buf, "{d:0>4}", .{@as(u32, @intCast(if (dt.year < 0) -dt.year else dt.year))}) catch return error.AllocationFailed;
+            result.appendSlice(allocator, s) catch return error.AllocationFailed;
             i += 4;
         } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "01")) {
-            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.month))}) catch return error.AllocationFailed;
+            const s = std.fmt.bufPrint(&buf, "{d:0>2}", .{@as(u32, @intCast(dt.month))}) catch return error.AllocationFailed;
+            result.appendSlice(allocator, s) catch return error.AllocationFailed;
             i += 2;
         } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "02")) {
-            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.day))}) catch return error.AllocationFailed;
+            const s = std.fmt.bufPrint(&buf, "{d:0>2}", .{@as(u32, @intCast(dt.day))}) catch return error.AllocationFailed;
+            result.appendSlice(allocator, s) catch return error.AllocationFailed;
             i += 2;
         } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "15")) {
-            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.hour))}) catch return error.AllocationFailed;
+            const s = std.fmt.bufPrint(&buf, "{d:0>2}", .{@as(u32, @intCast(dt.hour))}) catch return error.AllocationFailed;
+            result.appendSlice(allocator, s) catch return error.AllocationFailed;
             i += 2;
         } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "04")) {
-            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.minute))}) catch return error.AllocationFailed;
+            const s = std.fmt.bufPrint(&buf, "{d:0>2}", .{@as(u32, @intCast(dt.minute))}) catch return error.AllocationFailed;
+            result.appendSlice(allocator, s) catch return error.AllocationFailed;
             i += 2;
         } else if (i + 2 <= layout.len and std.mem.eql(u8, layout[i .. i + 2], "05")) {
-            result.writer(allocator).print("{d:0>2}", .{@as(u32, @intCast(dt.second))}) catch return error.AllocationFailed;
+            const s = std.fmt.bufPrint(&buf, "{d:0>2}", .{@as(u32, @intCast(dt.second))}) catch return error.AllocationFailed;
+            result.appendSlice(allocator, s) catch return error.AllocationFailed;
             i += 2;
         } else {
             result.append(allocator, layout[i]) catch return error.AllocationFailed;

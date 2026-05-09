@@ -212,7 +212,7 @@ pub const Memory = struct {
         const slice = self.inner.memory();
         const uaddr: usize = @intCast(addr);
         if (uaddr >= slice.len) return error.OutOfBounds;
-        const end = std.mem.indexOfScalarPos(u8, slice, uaddr, 0) orelse slice.len;
+        const end = std.mem.findScalarPos(u8, slice, uaddr, 0) orelse slice.len;
         return slice[uaddr..end];
     }
 
@@ -267,7 +267,7 @@ fn dispatchBuiltin(vm: *zware.VirtualMachine, arg_count: u8) i32 {
     const builtin_id: u32 = @bitCast(raw_args[0]);
     const builtin_name = ctx.getBuiltinName(builtin_id) orelse return 0;
 
-    var json_args = std.ArrayListUnmanaged(std.json.Value){};
+    var json_args = std.ArrayListUnmanaged(std.json.Value).empty;
     defer json_args.deinit(ctx.allocator);
 
     i = 0;
@@ -300,7 +300,7 @@ fn deserializeArg(ctx: *OpaContext, addr: i32) ?std.json.Value {
     if (json_addr <= 0 or json_addr >= @as(i32, @intCast(mem_slice.len))) return null;
 
     const uaddr: usize = @intCast(json_addr);
-    const end = std.mem.indexOfScalarPos(u8, mem_slice, uaddr, 0) orelse return null;
+    const end = std.mem.findScalarPos(u8, mem_slice, uaddr, 0) orelse return null;
     const json_str = mem_slice[uaddr..end];
 
     return std.json.parseFromSliceLeaky(std.json.Value, ctx.allocator, json_str, .{}) catch null;

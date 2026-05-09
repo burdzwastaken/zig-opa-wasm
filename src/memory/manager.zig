@@ -119,11 +119,9 @@ pub const MemoryManager = struct {
 
     /// Serialize a Zig value to JSON, write to WASM and parse.
     pub fn writeValue(self: *Self, value: anytype) !u32 {
-        var buffer = std.ArrayList(u8).init(self.allocator);
-        defer buffer.deinit();
-
-        try std.json.stringify(value, .{}, buffer.writer());
-        return self.writeAndParseJson(buffer.items);
+        const json_str = try std.json.Stringify.valueAlloc(self.allocator, value, .{});
+        defer self.allocator.free(json_str);
+        return self.writeAndParseJson(json_str);
     }
 
     /// Read OPA value and deserialize to Zig type.

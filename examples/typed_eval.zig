@@ -13,10 +13,9 @@ const OpaResult = struct {
     result: bool,
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     var wasm_backend = try opa.WasmerBackend.init(allocator);
     defer wasm_backend.deinit();
@@ -33,10 +32,10 @@ pub fn main() !void {
     const input = Input{ .user = "admin", .action = "read" };
     const results = try instance.evaluateTyped([]OpaResult, "example/allow", input);
 
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     if (results.len > 0 and results[0].result) {
-        try stdout.writeAll("allowed\n");
+        stdout.writeStreamingAll(io, "allowed\n") catch {};
     } else {
-        try stdout.writeAll("denied\n");
+        stdout.writeStreamingAll(io, "denied\n") catch {};
     }
 }

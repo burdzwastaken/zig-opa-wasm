@@ -3,15 +3,12 @@
 const std = @import("std");
 const opa = @import("zig_opa_wasm");
 
-const stdout = std.fs.File.stdout();
-const stderr = std.fs.File.stderr();
-
 pub const InfoArgs = struct {
     file: []const u8,
 };
 
-pub fn printUsage() !void {
-    try stdout.writeAll(
+pub fn printUsage(io: std.Io) void {
+    std.Io.File.stdout().writeStreamingAll(io,
         \\opa-zig info - Inspect a WASM module
         \\
         \\USAGE:
@@ -23,27 +20,29 @@ pub fn printUsage() !void {
         \\OPTIONS:
         \\    -h, --help    Show this help message
         \\
-    );
+    ) catch {};
 }
 
-fn writeError(comptime fmt: []const u8, args: anytype) void {
+fn writeError(io: std.Io, comptime fmt: []const u8, args: anytype) void {
     var buf: [256]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, fmt, args) catch return;
-    stderr.writeAll(msg) catch {};
+    std.Io.File.stderr().writeStreamingAll(io, msg) catch {};
 }
 
-pub fn runWithArgs(allocator: std.mem.Allocator, args: []const []const u8) !void {
+pub fn runWithArgs(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !void {
     if (args.len == 0) {
-        try stderr.writeAll("error: missing FILE argument\n\n");
-        try printUsage();
+        std.Io.File.stderr().writeStreamingAll(io, "error: missing FILE argument\n\n") catch {};
+        printUsage(io);
         return;
     }
-    return run(allocator, .{ .file = args[0] });
+    return run(allocator, io, .{ .file = args[0] });
 }
 
-pub fn run(allocator: std.mem.Allocator, args: InfoArgs) !void {
-    const wasm_bytes = std.fs.cwd().readFileAlloc(allocator, args.file, 50 * 1024 * 1024) catch |err| {
-        writeError("error: failed to read '{s}': {}\n", .{ args.file, err });
+pub fn run(allocator: std.mem.Allocator, io: std.Io, args: InfoArgs) !void {
+    const stdout = std.Io.File.stdout();
+
+    const wasm_bytes = std.Io.Dir.cwd().readFileAlloc(io, args.file, allocator, .unlimited) catch |err| {
+        writeError(io, "error: failed to read '{s}': {}\n", .{ args.file, err });
         return error.FileReadFailed;
     };
     defer allocator.free(wasm_bytes);
@@ -51,20 +50,20 @@ pub fn run(allocator: std.mem.Allocator, args: InfoArgs) !void {
     const file_size = wasm_bytes.len;
 
     var backend = opa.Backend.init(allocator) catch |err| {
-        writeError("error: failed to initialize backend: {}\n", .{err});
+        writeError(io, "error: failed to initialize backend: {}\n", .{err});
         return error.BackendInitFailed;
     };
     defer backend.deinit();
 
     var be = backend.asBackend();
     var policy = opa.Policy.load(allocator, &be, wasm_bytes) catch |err| {
-        writeError("error: failed to load policy: {}\n", .{err});
+        writeError(io, "error: failed to load policy: {}\n", .{err});
         return error.PolicyLoadFailed;
     };
     defer policy.deinit();
 
     var instance = opa.Instance.create(allocator, &policy) catch |err| {
-        writeError("error: failed to create instance: {}\n", .{err});
+        writeError(io, "error: failed to create instance: {}\n", .{err});
         return error.InstanceCreateFailed;
     };
     defer instance.deinit();
@@ -87,16 +86,16 @@ pub fn run(allocator: std.mem.Allocator, args: InfoArgs) !void {
     }
 
     pos += (std.fmt.bufPrint(buf[pos..], "\nRequired Builtins:\n", .{}) catch unreachable).len;
-    try stdout.writeAll(buf[0..pos]);
+    stdout.writeStreamingAll(io, buf[0..pos]) catch {};
 
     if (instance.builtins.count() == 0) {
-        try stdout.writeAll("  (none)\n");
+        stdout.writeStreamingAll(io, "  (none)\n") catch {};
     } else {
         const BuiltinEntry = struct {
             id: u32,
             name: []const u8,
         };
-        var entries = std.ArrayList(BuiltinEntry){};
+        var entries: std.ArrayListUnmanaged(BuiltinEntry) = .empty;
         defer entries.deinit(allocator);
 
         var builtin_iter = instance.builtins.iterator();
@@ -117,7 +116,7 @@ pub fn run(allocator: std.mem.Allocator, args: InfoArgs) !void {
                 std.fmt.bufPrint(&line_buf, "  {d}: {s}\n", .{ entry.id, entry.name }) catch unreachable
             else
                 std.fmt.bufPrint(&line_buf, "  {d}: {s} (NOT IMPLEMENTED)\n", .{ entry.id, entry.name }) catch unreachable;
-            try stdout.writeAll(line);
+            stdout.writeStreamingAll(io, line) catch {};
         }
     }
 }

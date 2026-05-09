@@ -16,10 +16,8 @@ pub const Bundle = struct {
     }
 
     /// Extract bundle from a file path.
-    pub fn fromFile(allocator: std.mem.Allocator, path: []const u8) !Bundle {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-        const bytes = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
+    pub fn fromFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Bundle {
+        const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .unlimited);
         defer allocator.free(bytes);
         return fromBytes(allocator, bytes);
     }
@@ -108,6 +106,6 @@ test "isBundle" {
 }
 
 test "fromFile with non-existent file" {
-    const result = Bundle.fromFile(std.testing.allocator, "/non/existent/bundle.tar.gz");
+    const result = Bundle.fromFile(std.testing.allocator, std.testing.io, "/non/existent/bundle.tar.gz");
     try std.testing.expectError(error.FileNotFound, result);
 }

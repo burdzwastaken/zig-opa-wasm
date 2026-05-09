@@ -51,11 +51,11 @@ fn yamlToJson(allocator: std.mem.Allocator, value: yaml.Yaml.Value) !std.json.Va
             break :blk .{ .array = arr };
         },
         .map => |map| blk: {
-            var obj = std.json.ObjectMap.init(allocator);
+            var obj = std.json.ObjectMap.empty;
             const keys = map.keys();
             const values = map.values();
             for (keys, values) |key, val| {
-                try obj.put(key, try yamlToJson(allocator, val));
+                try obj.put(allocator, key, try yamlToJson(allocator, val));
             }
             break :blk .{ .object = obj };
         },
@@ -64,7 +64,7 @@ fn yamlToJson(allocator: std.mem.Allocator, value: yaml.Yaml.Value) !std.json.Va
 }
 
 fn jsonToYaml(allocator: std.mem.Allocator, val: std.json.Value, indent: usize) ![]const u8 {
-    var buf = std.ArrayListUnmanaged(u8){};
+    var buf = std.ArrayListUnmanaged(u8).empty;
     errdefer buf.deinit(allocator);
 
     try writeYamlValue(allocator, &buf, val, indent);

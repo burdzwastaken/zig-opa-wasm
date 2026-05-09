@@ -275,8 +275,8 @@ fn moduleInstantiate(
         .module = data,
         .backend = zb,
         .allocator = zb.allocator,
-        .func_allocations = .{},
-        .memory_allocations = .{},
+        .func_allocations = .empty,
+        .memory_allocations = .empty,
     };
 
     instance.instantiate() catch {
@@ -514,7 +514,7 @@ fn dispatchBuiltin(vm: *zware.VirtualMachine, arg_count: u8) i32 {
 
     ctx.log(.trace, builtin_name);
 
-    var json_args = std.ArrayListUnmanaged(std.json.Value){};
+    var json_args = std.ArrayListUnmanaged(std.json.Value).empty;
     defer json_args.deinit(allocator);
 
     i = 0;
@@ -551,7 +551,7 @@ fn deserializeArg(ctx: *OpaContext, addr: i32) ?std.json.Value {
     if (json_addr <= 0 or json_addr >= @as(i32, @intCast(mem_slice.len))) return null;
 
     const uaddr: usize = @intCast(json_addr);
-    const end = std.mem.indexOfScalarPos(u8, mem_slice, uaddr, 0) orelse return null;
+    const end = std.mem.findScalarPos(u8, mem_slice, uaddr, 0) orelse return null;
     const json_str = mem_slice[uaddr..end];
 
     const alloc = ctx.allocator orelse return null;

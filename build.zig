@@ -11,12 +11,11 @@ fn compileRego(b: *std.Build, policy_path: []const u8, entrypoints: []const []co
     const opa_bundle = opa_build.addOutputFileArg("bundle.tar.gz");
     opa_build.addFileArg(b.path(policy_path));
 
-    const extract_wasm = b.addSystemCommand(&.{ "tar", "-xzf" });
+    const extract_wasm = b.addSystemCommand(&.{ "sh", "-c", "tar -xOzf \"$0\" policy.wasm 2>/dev/null || tar -xOzf \"$0\" /policy.wasm" });
     extract_wasm.addFileArg(opa_bundle);
-    extract_wasm.addArgs(&.{ "-O", "/policy.wasm" });
     extract_wasm.step.dependOn(&opa_build.step);
 
-    return extract_wasm.captureStdOut();
+    return extract_wasm.captureStdOut(.{});
 }
 
 pub fn build(b: *std.Build) void {
@@ -46,10 +45,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const zul_dep = b.dependency("zul", .{
-        .target = target,
-        .optimize = optimize,
-    });
     const humanize_dep = b.dependency("zig_humanize", .{
         .target = target,
         .optimize = optimize,
@@ -69,7 +64,6 @@ pub fn build(b: *std.Build) void {
 
     lib_mod.addImport("mvzr", mvzr_dep.module("mvzr"));
     lib_mod.addImport("yaml", zig_yaml_dep.module("yaml"));
-    lib_mod.addImport("zul", zul_dep.module("zul"));
     lib_mod.addImport("humanize", humanize_dep.module("humanize"));
 
     switch (backend) {
@@ -105,11 +99,11 @@ pub fn build(b: *std.Build) void {
     switch (backend) {
         .wasmer => {
             exe_mod.addImport("wasmer", wasmer_dep.module("wasmer"));
-            exe.linkLibC();
-            if (b.graph.env_map.get("WASMER_DIR")) |wasmer_dir| {
-                exe.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{wasmer_dir}) });
+            exe_mod.link_libc = true;
+            if (b.graph.environ_map.get("WASMER_DIR")) |wasmer_dir| {
+                exe_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{wasmer_dir}) });
             }
-            exe.linkSystemLibrary("wasmer");
+            exe_mod.linkSystemLibrary("wasmer", .{});
         },
         .zware => {
             exe_mod.addImport("zware", zware_dep.module("zware"));
@@ -146,11 +140,11 @@ pub fn build(b: *std.Build) void {
     });
     switch (backend) {
         .wasmer => {
-            lib_tests.linkLibC();
-            if (b.graph.env_map.get("WASMER_DIR")) |wasmer_dir| {
-                lib_tests.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{wasmer_dir}) });
+            lib_tests.root_module.link_libc = true;
+            if (b.graph.environ_map.get("WASMER_DIR")) |wasmer_dir| {
+                lib_tests.root_module.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{wasmer_dir}) });
             }
-            lib_tests.linkSystemLibrary("wasmer");
+            lib_tests.root_module.linkSystemLibrary("wasmer", .{});
         },
         .zware => {},
         .freestanding => {},
@@ -215,11 +209,11 @@ pub fn build(b: *std.Build) void {
                 .name = example_name,
                 .root_module = example_mod,
             });
-            example.linkLibC();
-            if (b.graph.env_map.get("WASMER_DIR")) |wasmer_dir| {
-                example.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{wasmer_dir}) });
+            example_mod.link_libc = true;
+            if (b.graph.environ_map.get("WASMER_DIR")) |wasmer_dir| {
+                example_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{wasmer_dir}) });
             }
-            example.linkSystemLibrary("wasmer");
+            example_mod.linkSystemLibrary("wasmer", .{});
 
             const install_example = b.addInstallArtifact(example, .{});
             const example_step = b.step(example_name, b.fmt("Build {s} example", .{example_name}));

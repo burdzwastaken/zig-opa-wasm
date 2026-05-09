@@ -85,8 +85,8 @@ test "types.is_array" {
 }
 
 test "types.is_object" {
-    var obj = std.json.ObjectMap.init(std.testing.allocator);
-    defer obj.deinit();
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(std.testing.allocator);
     try std.testing.expect((try isObject(std.testing.allocator, Args.init(&.{.{ .object = obj }}))).bool);
     try std.testing.expect(!(try isObject(std.testing.allocator, Args.init(&.{.{ .integer = 1 }}))).bool);
 }

@@ -15,10 +15,10 @@ pub fn trace(_: std.mem.Allocator, a: Args) BuiltinError!json.Value {
 }
 
 pub fn runtime(allocator: std.mem.Allocator, _: Args) BuiltinError!json.Value {
-    var obj = json.ObjectMap.init(allocator);
-    obj.put("env", .{ .object = json.ObjectMap.init(allocator) }) catch return BuiltinError.AllocationFailed;
-    obj.put("version", .{ .string = "0.0.7" }) catch return BuiltinError.AllocationFailed;
-    obj.put("commit", .{ .string = "" }) catch return BuiltinError.AllocationFailed;
+    var obj = json.ObjectMap.empty;
+    obj.put(allocator, "env", .{ .object = json.ObjectMap.empty }) catch return BuiltinError.AllocationFailed;
+    obj.put(allocator, "version", .{ .string = "0.0.8" }) catch return BuiltinError.AllocationFailed;
+    obj.put(allocator, "commit", .{ .string = "" }) catch return BuiltinError.AllocationFailed;
     return .{ .object = obj };
 }
 

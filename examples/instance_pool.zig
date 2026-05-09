@@ -3,10 +3,9 @@
 const std = @import("std");
 const opa = @import("zig_opa_wasm");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     var wasm_backend = try opa.WasmerBackend.init(allocator);
     defer wasm_backend.deinit();
@@ -26,8 +25,7 @@ pub fn main() !void {
         "{\"user\": \"admin\"}",
     };
 
-    const stdout = std.fs.File.stdout();
-
+    const stdout = std.Io.File.stdout();
     for (inputs) |input| {
         var instance = try pool.acquire();
         defer pool.release(instance);
@@ -35,7 +33,7 @@ pub fn main() !void {
         const result = try instance.evaluate("example/allow", input);
         defer allocator.free(result);
 
-        try stdout.writeAll(result);
-        try stdout.writeAll("\n");
+        stdout.writeStreamingAll(io, result) catch {};
+        stdout.writeStreamingAll(io, "\n") catch {};
     }
 }

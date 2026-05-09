@@ -8,7 +8,7 @@ const BuiltinError = common.BuiltinError;
 pub fn quoteMeta(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
     const pattern = try args.getString(0);
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     errdefer result.deinit(allocator);
 
     for (pattern) |c| {
@@ -32,7 +32,7 @@ pub fn match(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Val
     const match_str = try args.getString(2);
 
     // default to ["."] if null
-    var delim_list: std.ArrayListUnmanaged([]const u8) = .{};
+    var delim_list: std.ArrayListUnmanaged([]const u8) = .empty;
     defer delim_list.deinit(allocator);
 
     if (delimiters_val == .null) {

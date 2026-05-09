@@ -32,63 +32,67 @@ pub fn remove(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value
         if (k == .string) remove_set.put(k.string, {}) catch return error.AllocationFailed;
     }
 
-    var result = std.json.ObjectMap.init(allocator);
+    var result = std.json.ObjectMap.empty;
     var iter = obj.iterator();
     while (iter.next()) |entry| {
         if (!remove_set.contains(entry.key_ptr.*)) {
-            result.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
+            result.put(allocator, entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
         }
     }
     return .{ .object = result };
 }
 
 test "object.get with default" {
-    var obj = std.json.ObjectMap.init(std.testing.allocator);
-    defer obj.deinit();
-    try obj.put("a", .{ .integer = 1 });
-    const result = try get(std.testing.allocator, Args.init(&.{ .{ .object = obj }, .{ .string = "a" }, .{ .integer = 99 } }));
+    const alloc = std.testing.allocator;
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(alloc);
+    try obj.put(alloc, "a", .{ .integer = 1 });
+    const result = try get(alloc, Args.init(&.{ .{ .object = obj }, .{ .string = "a" }, .{ .integer = 99 } }));
     try std.testing.expectEqual(@as(i64, 1), result.integer);
 }
 
 test "object.get missing with default" {
-    var obj = std.json.ObjectMap.init(std.testing.allocator);
-    defer obj.deinit();
-    const result = try get(std.testing.allocator, Args.init(&.{ .{ .object = obj }, .{ .string = "missing" }, .{ .integer = 42 } }));
+    const alloc = std.testing.allocator;
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(alloc);
+    const result = try get(alloc, Args.init(&.{ .{ .object = obj }, .{ .string = "missing" }, .{ .integer = 42 } }));
     try std.testing.expectEqual(@as(i64, 42), result.integer);
 }
 
 test "object.keys" {
-    var obj = std.json.ObjectMap.init(std.testing.allocator);
-    defer obj.deinit();
-    try obj.put("a", .{ .integer = 1 });
-    try obj.put("b", .{ .integer = 2 });
-    const result = try keys(std.testing.allocator, Args.init(&.{.{ .object = obj }}));
+    const alloc = std.testing.allocator;
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(alloc);
+    try obj.put(alloc, "a", .{ .integer = 1 });
+    try obj.put(alloc, "b", .{ .integer = 2 });
+    const result = try keys(alloc, Args.init(&.{.{ .object = obj }}));
     defer result.array.deinit();
     try std.testing.expectEqual(@as(usize, 2), result.array.items.len);
 }
 
 test "object.remove" {
-    var obj = std.json.ObjectMap.init(std.testing.allocator);
-    defer obj.deinit();
-    try obj.put("a", .{ .integer = 1 });
-    try obj.put("b", .{ .integer = 2 });
-    var keys_arr = std.json.Array.init(std.testing.allocator);
+    const alloc = std.testing.allocator;
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(alloc);
+    try obj.put(alloc, "a", .{ .integer = 1 });
+    try obj.put(alloc, "b", .{ .integer = 2 });
+    var keys_arr = std.json.Array.init(alloc);
     defer keys_arr.deinit();
     try keys_arr.append(.{ .string = "a" });
-    const result = try remove(std.testing.allocator, Args.init(&.{ .{ .object = obj }, .{ .array = keys_arr } }));
-    defer @constCast(&result.object).deinit();
+    const result = try remove(alloc, Args.init(&.{ .{ .object = obj }, .{ .array = keys_arr } }));
+    defer @constCast(&result.object).deinit(alloc);
     try std.testing.expectEqual(@as(usize, 1), result.object.count());
     try std.testing.expect(result.object.get("b") != null);
 }
 
 pub fn unionN(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const objects = try a.getArray(0);
-    var result = std.json.ObjectMap.init(allocator);
+    var result = std.json.ObjectMap.empty;
     for (objects) |obj_val| {
         if (obj_val != .object) continue;
         var iter = obj_val.object.iterator();
         while (iter.next()) |entry| {
-            result.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
+            result.put(allocator, entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
         }
     }
     return .{ .object = result };
@@ -104,11 +108,11 @@ pub fn filter(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value
         if (k == .string) keep_set.put(k.string, {}) catch return error.AllocationFailed;
     }
 
-    var result = std.json.ObjectMap.init(allocator);
+    var result = std.json.ObjectMap.empty;
     var iter = obj.iterator();
     while (iter.next()) |entry| {
         if (keep_set.contains(entry.key_ptr.*)) {
-            result.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
+            result.put(allocator, entry.key_ptr.*, entry.value_ptr.*) catch return error.AllocationFailed;
         }
     }
     return .{ .object = result };
@@ -133,10 +137,10 @@ test "object.filter" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var obj = std.json.ObjectMap.init(allocator);
-    try obj.put("a", .{ .integer = 1 });
-    try obj.put("b", .{ .integer = 2 });
-    try obj.put("c", .{ .integer = 3 });
+    var obj = std.json.ObjectMap.empty;
+    try obj.put(allocator, "a", .{ .integer = 1 });
+    try obj.put(allocator, "b", .{ .integer = 2 });
+    try obj.put(allocator, "c", .{ .integer = 3 });
 
     var keys_arr = std.json.Array.init(allocator);
     try keys_arr.append(.{ .string = "a" });
@@ -154,18 +158,18 @@ test "object.subset" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var super_obj = std.json.ObjectMap.init(allocator);
-    try super_obj.put("a", .{ .integer = 1 });
-    try super_obj.put("b", .{ .integer = 2 });
+    var super_obj = std.json.ObjectMap.empty;
+    try super_obj.put(allocator, "a", .{ .integer = 1 });
+    try super_obj.put(allocator, "b", .{ .integer = 2 });
 
-    var sub_obj = std.json.ObjectMap.init(allocator);
-    try sub_obj.put("a", .{ .integer = 1 });
+    var sub_obj = std.json.ObjectMap.empty;
+    try sub_obj.put(allocator, "a", .{ .integer = 1 });
 
     var result = try subset(allocator, Args.init(&.{ .{ .object = super_obj }, .{ .object = sub_obj } }));
     try std.testing.expect(result.bool);
 
-    var not_sub = std.json.ObjectMap.init(allocator);
-    try not_sub.put("a", .{ .integer = 99 });
+    var not_sub = std.json.ObjectMap.empty;
+    try not_sub.put(allocator, "a", .{ .integer = 99 });
 
     result = try subset(allocator, Args.init(&.{ .{ .object = super_obj }, .{ .object = not_sub } }));
     try std.testing.expect(!result.bool);
@@ -174,13 +178,14 @@ test "object.subset" {
 test "object.union_n" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var obj1 = std.json.ObjectMap.init(arena.allocator());
-    try obj1.put("a", .{ .integer = 1 });
-    var obj2 = std.json.ObjectMap.init(arena.allocator());
-    try obj2.put("b", .{ .integer = 2 });
-    var arr = std.json.Array.init(arena.allocator());
+    const allocator = arena.allocator();
+    var obj1 = std.json.ObjectMap.empty;
+    try obj1.put(allocator, "a", .{ .integer = 1 });
+    var obj2 = std.json.ObjectMap.empty;
+    try obj2.put(allocator, "b", .{ .integer = 2 });
+    var arr = std.json.Array.init(allocator);
     try arr.append(.{ .object = obj1 });
     try arr.append(.{ .object = obj2 });
-    const result = try unionN(arena.allocator(), Args.init(&.{.{ .array = arr }}));
+    const result = try unionN(allocator, Args.init(&.{.{ .array = arr }}));
     try std.testing.expectEqual(@as(usize, 2), result.object.count());
 }

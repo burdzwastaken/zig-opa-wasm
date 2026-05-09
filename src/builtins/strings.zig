@@ -32,7 +32,7 @@ pub fn concat(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value
 pub fn contains(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const haystack = try a.getString(0);
     const needle = try a.getString(1);
-    return common.makeBool(std.mem.indexOf(u8, haystack, needle) != null);
+    return common.makeBool(std.mem.find(u8, haystack, needle) != null);
 }
 
 pub fn startswith(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
@@ -68,7 +68,7 @@ pub fn trim(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
 pub fn trim_left(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const s = try a.getString(0);
     const cutset = try a.getString(1);
-    const result = std.mem.trimLeft(u8, s, cutset);
+    const result = std.mem.trimStart(u8, s, cutset);
     const dup = allocator.dupe(u8, result) catch return error.AllocationFailed;
     return .{ .string = dup };
 }
@@ -76,7 +76,7 @@ pub fn trim_left(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Va
 pub fn trim_right(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const s = try a.getString(0);
     const cutset = try a.getString(1);
-    const result = std.mem.trimRight(u8, s, cutset);
+    const result = std.mem.trimEnd(u8, s, cutset);
     const dup = allocator.dupe(u8, result) catch return error.AllocationFailed;
     return .{ .string = dup };
 }
@@ -138,7 +138,7 @@ pub fn replace(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Valu
 pub fn indexof(_: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const haystack = try a.getString(0);
     const needle = try a.getString(1);
-    const idx = std.mem.indexOf(u8, haystack, needle);
+    const idx = std.mem.find(u8, haystack, needle);
     return common.makeNumber(if (idx) |i| @as(f64, @floatFromInt(i)) else -1);
 }
 
@@ -148,7 +148,7 @@ pub fn indexof_n(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Va
 
     var arr = std.json.Array.init(allocator);
     var pos: usize = 0;
-    while (std.mem.indexOfPos(u8, haystack, pos, needle)) |idx| {
+    while (std.mem.findPos(u8, haystack, pos, needle)) |idx| {
         arr.append(.{ .integer = @intCast(idx) }) catch return error.AllocationFailed;
         pos = idx + 1;
     }
@@ -180,7 +180,7 @@ pub fn sprintf(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Valu
     const format = try a.getString(0);
     const args_array = try a.getArray(1);
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     var arg_idx: usize = 0;
     var i: usize = 0;
 
@@ -325,7 +325,7 @@ pub fn replace_n(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Va
     const patterns = try a.getObject(0);
     const input = try a.getString(1);
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     var i: usize = 0;
     outer: while (i < input.len) {
         var iter = patterns.iterator();
@@ -543,12 +543,12 @@ pub fn render_template(allocator: std.mem.Allocator, a: Args) BuiltinError!std.j
     const template = try a.getString(0);
     const vars = try a.getObject(1);
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     var i: usize = 0;
 
     while (i < template.len) {
         if (template[i] == '{' and i + 1 < template.len and template[i + 1] == '{') {
-            if (std.mem.indexOfPos(u8, template, i + 2, "}}")) |end| {
+            if (std.mem.findPos(u8, template, i + 2, "}}")) |end| {
                 const key = template[i + 2 .. end];
                 if (vars.get(key)) |val| {
                     if (val == .string) {
@@ -574,8 +574,8 @@ test "strings.render_template" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var vars = std.json.ObjectMap.init(alloc);
-    try vars.put("name", .{ .string = "world" });
+    var vars = std.json.ObjectMap.empty;
+    try vars.put(alloc, "name", .{ .string = "world" });
 
     var args = [_]std.json.Value{ .{ .string = "Hello, {{name}}!" }, .{ .object = vars } };
     const result = try render_template(alloc, Args.init(&args));

@@ -445,7 +445,7 @@ fn dispatchBuiltin(env: ?*anyopaque, args: ?*const wasmer.wasm.ValVec, results: 
 
     ctx.log(.trace, builtin_name);
 
-    var json_args = std.ArrayListUnmanaged(std.json.Value){};
+    var json_args = std.ArrayListUnmanaged(std.json.Value).empty;
     defer json_args.deinit(allocator);
 
     if (args) |a| {
@@ -504,7 +504,7 @@ fn deserializeArg(allocator: std.mem.Allocator, ctx: *OpaContext, addr: i32) ?st
     if (json_addr <= 0 or json_addr >= @as(i32, @intCast(mem_slice.len))) return null;
 
     const uaddr: usize = @intCast(json_addr);
-    const end = std.mem.indexOfScalarPos(u8, mem_slice, uaddr, 0) orelse return null;
+    const end = std.mem.findScalarPos(u8, mem_slice, uaddr, 0) orelse return null;
     const json_str = mem_slice[uaddr..end];
 
     const parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, json_str, .{}) catch return null;

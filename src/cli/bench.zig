@@ -4,8 +4,8 @@ const std = @import("std");
 const opa = @import("zig_opa_wasm");
 const bundle = opa.bundle;
 
-pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    const stdout = std.fs.File.stdout();
+pub fn run(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !void {
+    const stdout = std.Io.File.stdout();
 
     var module_path: ?[]const u8 = null;
     var entrypoint: ?[]const u8 = null;
@@ -45,18 +45,18 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     }
 
     if (module_path == null) {
-        try stdout.writeAll("error: --module is required\n");
+        stdout.writeStreamingAll(io, "error: --module is required\n") catch {};
         return error.MissingModule;
     }
     if (entrypoint == null) {
-        try stdout.writeAll("error: --entrypoint is required\n");
+        stdout.writeStreamingAll(io, "error: --entrypoint is required\n") catch {};
         return error.MissingEntrypoint;
     }
 
-    const file_bytes = std.fs.cwd().readFileAlloc(allocator, module_path.?, 50 * 1024 * 1024) catch |err| {
+    const file_bytes = std.Io.Dir.cwd().readFileAlloc(io, module_path.?, allocator, .unlimited) catch |err| {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "error: failed to read module: {}\n", .{err}) catch "error: failed to read module\n";
-        try stdout.writeAll(msg);
+        stdout.writeStreamingAll(io, msg) catch {};
         return err;
     };
     defer allocator.free(file_bytes);
@@ -69,7 +69,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
         loaded_bundle = bundle.fromBytes(allocator, file_bytes) catch |err| {
             var buf: [256]u8 = undefined;
             const msg = std.fmt.bufPrint(&buf, "error: failed to load bundle: {}\n", .{err}) catch "error: failed to load bundle\n";
-            try stdout.writeAll(msg);
+            stdout.writeStreamingAll(io, msg) catch {};
             return err;
         };
         break :blk loaded_bundle.?.wasm;
@@ -82,7 +82,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var policy = opa.Policy.load(allocator, &backend, wasm_bytes) catch |err| {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "error: failed to load policy: {}\n", .{err}) catch "error: failed to load policy\n";
-        try stdout.writeAll(msg);
+        stdout.writeStreamingAll(io, msg) catch {};
         return err;
     };
     defer policy.deinit();
@@ -90,7 +90,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var instance = opa.Instance.create(allocator, &policy) catch |err| {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "error: failed to create instance: {}\n", .{err}) catch "error: failed to create instance\n";
-        try stdout.writeAll(msg);
+        stdout.writeStreamingAll(io, msg) catch {};
         return err;
     };
     defer instance.deinit();
@@ -102,7 +102,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     var buf: [512]u8 = undefined;
     const header = std.fmt.bufPrint(&buf, "Benchmark: {s}\nIterations: {d}\nWarmup: {d}\n\n", .{ entrypoint.?, iterations, warmup }) catch "Benchmark\n";
-    try stdout.writeAll(header);
+    stdout.writeStreamingAll(io, header) catch {};
 
     for (0..warmup) |_| {
         const result = try instance.evaluate(entrypoint.?, input);
@@ -112,11 +112,11 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var times = try allocator.alloc(u64, iterations);
     defer allocator.free(times);
 
-    var timer = try std.time.Timer.start();
     for (0..iterations) |iter| {
-        timer.reset();
+        const start = std.Io.Timestamp.now(io, .awake);
         const result = try instance.evaluate(entrypoint.?, input);
-        times[iter] = timer.read();
+        const end = std.Io.Timestamp.now(io, .awake);
+        times[iter] = @intCast(end.durationTo(start).nanoseconds * -1);
         allocator.free(result);
     }
 
@@ -149,12 +149,11 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
         \\Throughput: {d:.0} eval/sec
         \\
     , .{ total_ms, mean_us, median_us, p95_us, p99_us, throughput }) catch "error formatting results\n";
-    try stdout.writeAll(results);
+    stdout.writeStreamingAll(io, results) catch {};
 }
 
-pub fn printUsage() !void {
-    const stdout = std.fs.File.stdout();
-    try stdout.writeAll(
+pub fn printUsage(io: std.Io) void {
+    std.Io.File.stdout().writeStreamingAll(io,
         \\opa-zig bench - Benchmark policy evaluation
         \\
         \\USAGE:
@@ -175,5 +174,5 @@ pub fn printUsage() !void {
         \\    opa-zig bench -m policy.wasm -e "authz/allow" -n 5000
         \\    opa-zig bench -m policy.wasm -e "main/decision" -i '{"user":"alice"}'
         \\
-    );
+    ) catch {};
 }

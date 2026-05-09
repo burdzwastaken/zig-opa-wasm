@@ -1,6 +1,6 @@
 # zig-opa-wasm
 
-[![Zig](https://img.shields.io/badge/Zig-≥0.15.2-color?logo=zig&color=%23f3ab20)](https://ziglang.org/download/)
+[![Zig](https://img.shields.io/badge/Zig-≥0.16.0-color?logo=zig&color=%23f3ab20)](https://ziglang.org/download/)
 [![Release](https://img.shields.io/github/v/release/burdzwastaken/zig-opa-wasm)](https://github.com/burdzwastaken/zig-opa-wasm/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/burdzwastaken/zig-opa-wasm/ci.yml?branch=master)](https://github.com/burdzwastaken/zig-opa-wasm/actions)
 
@@ -13,7 +13,7 @@ Add to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .zig_opa_wasm = .{
-        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.7",
+        .url = "git+https://github.com/burdzwastaken/zig-opa-wasm#v0.0.8",
         .hash = "...",
     },
 },
@@ -66,20 +66,28 @@ zig-out/bin/opa-zig bench -m policy.wasm -e "example/allow" -i '{}' -n 10000
 ### Basic Evaluation
 
 ```zig
+const std = @import("std");
 const opa = @import("opa");
 
-var wasm_backend = try opa.WasmerBackend.init(allocator);
-defer wasm_backend.deinit();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-var be = wasm_backend.asBackend();
-var policy = try opa.Policy.load(allocator, &be, wasm_bytes);
-defer policy.deinit();
+    var wasm_backend = try opa.WasmerBackend.init(allocator);
+    defer wasm_backend.deinit();
 
-var instance = try opa.Instance.create(allocator, &policy);
-defer instance.deinit();
+    var be = wasm_backend.asBackend();
+    var policy = try opa.Policy.load(allocator, &be, wasm_bytes);
+    defer policy.deinit();
 
-const result = try instance.evaluate("example/allow", "{\"user\":\"admin\"}");
-defer allocator.free(result);
+    var instance = try opa.Instance.create(allocator, &policy);
+    defer instance.deinit();
+
+    const result = try instance.evaluate("example/allow", "{\"user\":\"admin\"}");
+    defer allocator.free(result);
+
+    try std.Io.File.stdout().writeStreamingAll(io, result);
+}
 ```
 
 ### With Data Document
@@ -122,7 +130,7 @@ defer allocator.free(result);
 ### Bundle Loading
 
 ```zig
-var bundle = try opa.Bundle.fromFile(allocator, "policy.tar.gz");
+var bundle = try opa.Bundle.fromFile(allocator, io, "policy.tar.gz");
 defer bundle.deinit();
 
 var policy = try opa.Policy.load(allocator, &be, bundle.wasm);

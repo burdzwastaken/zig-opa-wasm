@@ -226,9 +226,9 @@ fn walkRecursive(
 
 test "walk - simple object" {
     const allocator = std.testing.allocator;
-    var obj = std.json.ObjectMap.init(allocator);
-    defer obj.deinit();
-    try obj.put("a", .{ .integer = 1 });
+    var obj = std.json.ObjectMap.empty;
+    defer obj.deinit(allocator);
+    try obj.put(allocator, "a", .{ .integer = 1 });
     var args = [_]std.json.Value{.{ .object = obj }};
     const result = try walk(allocator, Args.init(&args));
     defer freeWalkResult(allocator, result);
@@ -237,12 +237,12 @@ test "walk - simple object" {
 
 test "walk - nested" {
     const allocator = std.testing.allocator;
-    var inner = std.json.ObjectMap.init(allocator);
-    defer inner.deinit();
-    try inner.put("b", .{ .integer = 2 });
-    var outer = std.json.ObjectMap.init(allocator);
-    defer outer.deinit();
-    try outer.put("a", .{ .object = inner });
+    var inner = std.json.ObjectMap.empty;
+    defer inner.deinit(allocator);
+    try inner.put(allocator, "b", .{ .integer = 2 });
+    var outer = std.json.ObjectMap.empty;
+    defer outer.deinit(allocator);
+    try outer.put(allocator, "a", .{ .object = inner });
     var args = [_]std.json.Value{.{ .object = outer }};
     const result = try walk(allocator, Args.init(&args));
     defer freeWalkResult(allocator, result);

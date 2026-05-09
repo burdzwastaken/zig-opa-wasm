@@ -7,10 +7,7 @@ const Policy = opa.Policy;
 const Instance = opa.Instance;
 const Backend = opa.Backend;
 
-pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    const stdout = std.fs.File.stdout();
-    const stderr = std.fs.File.stderr();
-
+pub fn run(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !void {
     var wasm_path: ?[]const u8 = null;
     var entrypoint: ?[]const u8 = null;
     var input_json: ?[]const u8 = null;
@@ -49,7 +46,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
         } else if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--pretty")) {
             pretty = true;
         } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            try printUsage();
+            printUsage(io);
             return;
         } else {
             if (wasm_path == null and !std.mem.startsWith(u8, arg, "-")) {
@@ -59,14 +56,14 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     }
 
     if (wasm_path == null) {
-        try stderr.writeAll("error: missing required argument: WASM module path\n\n");
-        try printUsage();
+        std.Io.File.stderr().writeStreamingAll(io, "error: missing required argument: WASM module path\n\n") catch {};
+        printUsage(io);
         return error.MissingArgument;
     }
 
     if (entrypoint == null) {
-        try stderr.writeAll("error: missing required argument: --entrypoint\n\n");
-        try printUsage();
+        std.Io.File.stderr().writeStreamingAll(io, "error: missing required argument: --entrypoint\n\n") catch {};
+        printUsage(io);
         return error.MissingArgument;
     }
 
@@ -74,7 +71,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (input_json) |json| {
             break :blk json;
         } else if (input_file) |path| {
-            break :blk try std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024);
+            break :blk try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .unlimited);
         } else {
             break :blk "{}";
         }
@@ -84,7 +81,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (data_json) |json| {
             break :blk json;
         } else if (data_file) |path| {
-            break :blk try std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024);
+            break :blk try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .unlimited);
         } else {
             break :blk null;
         }
@@ -98,12 +95,12 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     const wasm_bytes = blk: {
         if (is_bundle) {
-            const file_bytes = try std.fs.cwd().readFileAlloc(allocator, path, 50 * 1024 * 1024);
+            const file_bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .unlimited);
             defer allocator.free(file_bytes);
             loaded_bundle = try opa.bundle.fromBytes(allocator, file_bytes);
             break :blk loaded_bundle.?.wasm;
         } else {
-            break :blk try std.fs.cwd().readFileAlloc(allocator, path, 50 * 1024 * 1024);
+            break :blk try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .unlimited);
         }
     };
     defer if (!is_bundle) allocator.free(wasm_bytes);
@@ -129,22 +126,22 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const result = try instance.evaluate(entrypoint.?, input);
     defer allocator.free(result);
 
+    const stdout = std.Io.File.stdout();
     if (pretty) {
         const parsed = try std.json.parseFromSlice(std.json.Value, allocator, result, .{});
         defer parsed.deinit();
         const pretty_output = try std.json.Stringify.valueAlloc(allocator, parsed.value, .{ .whitespace = .indent_2 });
         defer allocator.free(pretty_output);
-        try stdout.writeAll(pretty_output);
-        try stdout.writeAll("\n");
+        stdout.writeStreamingAll(io, pretty_output) catch {};
+        stdout.writeStreamingAll(io, "\n") catch {};
     } else {
-        try stdout.writeAll(result);
-        try stdout.writeAll("\n");
+        stdout.writeStreamingAll(io, result) catch {};
+        stdout.writeStreamingAll(io, "\n") catch {};
     }
 }
 
-pub fn printUsage() !void {
-    const stdout = std.fs.File.stdout();
-    try stdout.writeAll(
+pub fn printUsage(io: std.Io) void {
+    std.Io.File.stdout().writeStreamingAll(io,
         \\opa-zig eval - Evaluate a policy
         \\
         \\USAGE:
@@ -169,5 +166,5 @@ pub fn printUsage() !void {
         \\    opa-zig eval -m policy.wasm -e "authz/allow" -i '{"user":"alice"}'
         \\    opa-zig eval policy.wasm -e "main/decision" -D data.json -I input.json
         \\
-    );
+    ) catch {};
 }

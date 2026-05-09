@@ -87,7 +87,7 @@ pub fn hexDecode(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Va
 
 pub fn urlQueryEncode(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const input = try a.getString(0);
-    var result: std.ArrayListUnmanaged(u8) = .{};
+    var result: std.ArrayListUnmanaged(u8) = .empty;
     encodeComponent(allocator, &result, input) catch return error.AllocationFailed;
     return .{ .string = result.toOwnedSlice(allocator) catch return error.AllocationFailed };
 }
@@ -155,14 +155,12 @@ test "base64.is_valid - invalid" {
 
 pub fn urlQueryDecodeObject(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const input = try a.getString(0);
-    var result = std.json.ObjectMap.init(allocator);
+    var result = std.json.ObjectMap.empty;
 
     var pairs = std.mem.splitScalar(u8, input, '&');
     while (pairs.next()) |pair| {
         if (pair.len == 0) continue;
-        var kv = std.mem.splitScalar(u8, pair, '=');
-        const key = kv.next() orelse continue;
-        const val = kv.next() orelse "";
+        const key, const val = std.mem.cutScalar(u8, pair, '=') orelse .{ pair, "" };
 
         const decoded_key = decodeComponent(allocator, key) catch continue;
         const decoded_val = decodeComponent(allocator, val) catch continue;
@@ -174,16 +172,16 @@ pub fn urlQueryDecodeObject(allocator: std.mem.Allocator, a: Args) BuiltinError!
                 break :blk new_arr;
             };
             arr.append(.{ .string = decoded_val }) catch return error.AllocationFailed;
-            result.put(decoded_key, .{ .array = arr }) catch return error.AllocationFailed;
+            result.put(allocator, decoded_key, .{ .array = arr }) catch return error.AllocationFailed;
         } else {
-            result.put(decoded_key, .{ .string = decoded_val }) catch return error.AllocationFailed;
+            result.put(allocator, decoded_key, .{ .string = decoded_val }) catch return error.AllocationFailed;
         }
     }
     return .{ .object = result };
 }
 
 fn decodeComponent(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     var i: usize = 0;
     while (i < input.len) {
         if (input[i] == '%' and i + 2 < input.len) {
@@ -212,7 +210,7 @@ fn decodeComponent(allocator: std.mem.Allocator, input: []const u8) ![]const u8 
 
 pub fn urlQueryEncodeObject(allocator: std.mem.Allocator, a: Args) BuiltinError!std.json.Value {
     const obj = try a.getObject(0);
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     var first = true;
 
     var iter = obj.iterator();
@@ -268,8 +266,8 @@ test "urlquery.encode_object" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var obj = std.json.ObjectMap.init(arena.allocator());
-    try obj.put("foo", .{ .string = "bar" });
+    var obj = std.json.ObjectMap.empty;
+    try obj.put(arena.allocator(), "foo", .{ .string = "bar" });
 
     const result = try urlQueryEncodeObject(arena.allocator(), Args.init(&.{.{ .object = obj }}));
     try std.testing.expectEqualStrings("foo=bar", result.string);

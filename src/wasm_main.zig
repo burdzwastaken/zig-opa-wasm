@@ -367,7 +367,7 @@ export fn getLoadedPolicies() i32 {
         return -1;
     }
 
-    var buf = std.ArrayListUnmanaged(u8){};
+    var buf = std.ArrayListUnmanaged(u8).empty;
     defer buf.deinit(allocator);
 
     buf.append(allocator, '[') catch return -2;
@@ -402,7 +402,7 @@ export fn getEntrypoints(name_ptr: u32, name_len: u32) i32 {
         return -3;
     };
 
-    var buf = std.ArrayListUnmanaged(u8){};
+    var buf = std.ArrayListUnmanaged(u8).empty;
     defer buf.deinit(allocator);
 
     buf.append(allocator, '[') catch return -4;

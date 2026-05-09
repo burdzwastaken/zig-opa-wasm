@@ -10,7 +10,7 @@ pub fn reachable(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json
     var visited = std.StringHashMap(void).init(allocator);
     defer visited.deinit();
 
-    var queue = std.ArrayListUnmanaged([]const u8){};
+    var queue = std.ArrayListUnmanaged([]const u8).empty;
     defer queue.deinit(allocator);
 
     for (initial) |node| {
@@ -97,13 +97,13 @@ test "graph.reachable" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var graph = std.json.ObjectMap.init(alloc);
+    var graph = std.json.ObjectMap.empty;
     var a_neighbors = std.json.Array.init(alloc);
     try a_neighbors.append(.{ .string = "b" });
-    try graph.put("a", .{ .array = a_neighbors });
+    try graph.put(alloc, "a", .{ .array = a_neighbors });
     var b_neighbors = std.json.Array.init(alloc);
     try b_neighbors.append(.{ .string = "c" });
-    try graph.put("b", .{ .array = b_neighbors });
+    try graph.put(alloc, "b", .{ .array = b_neighbors });
 
     var initial = std.json.Array.init(alloc);
     try initial.append(.{ .string = "a" });
@@ -117,10 +117,10 @@ test "graph.reachable_paths" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var graph = std.json.ObjectMap.init(alloc);
+    var graph = std.json.ObjectMap.empty;
     var a_neighbors = std.json.Array.init(alloc);
     try a_neighbors.append(.{ .string = "b" });
-    try graph.put("a", .{ .array = a_neighbors });
+    try graph.put(alloc, "a", .{ .array = a_neighbors });
 
     var initial = std.json.Array.init(alloc);
     try initial.append(.{ .string = "a" });

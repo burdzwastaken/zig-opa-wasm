@@ -76,7 +76,7 @@ pub fn replace(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.V
 
     const regex = mvzr.compile(pattern) orelse return error.InvalidArguments;
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     errdefer result.deinit(allocator);
 
     var last_end: usize = 0;
@@ -166,21 +166,21 @@ pub fn templateMatch(allocator: std.mem.Allocator, args: Args) BuiltinError!std.
     const delim_start = try args.getString(2);
     const delim_end = try args.getString(3);
 
-    var pattern = std.ArrayListUnmanaged(u8){};
+    var pattern = std.ArrayListUnmanaged(u8).empty;
     defer pattern.deinit(allocator);
 
     var i: usize = 0;
     while (i < template.len) {
         if (i + delim_start.len <= template.len and std.mem.eql(u8, template[i .. i + delim_start.len], delim_start)) {
             const start = i + delim_start.len;
-            if (std.mem.indexOfPos(u8, template, start, delim_end)) |end| {
+            if (std.mem.findPos(u8, template, start, delim_end)) |end| {
                 pattern.appendSlice(allocator, ".*") catch return error.AllocationFailed;
                 i = end + delim_end.len;
                 continue;
             }
         }
         const c = template[i];
-        if (std.mem.indexOfScalar(u8, ".*+?^$[](){}|\\", c) != null) {
+        if (std.mem.findScalar(u8, ".*+?^$[](){}|\\", c) != null) {
             pattern.append(allocator, '\\') catch return error.AllocationFailed;
         }
         pattern.append(allocator, c) catch return error.AllocationFailed;

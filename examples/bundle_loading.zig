@@ -3,20 +3,17 @@
 const std = @import("std");
 const opa = @import("zig_opa_wasm");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
     if (args.len < 2) {
-        std.debug.print("Usage: {s} <bundle.tar.gz>\n", .{args[0]});
+        std.Io.File.stderr().writeStreamingAll(io, "Usage: bundle_loading <bundle.tar.gz>\n") catch {};
         return;
     }
 
-    var bundle = try opa.Bundle.fromFile(allocator, args[1]);
+    var bundle = try opa.Bundle.fromFile(allocator, io, args[1]);
     defer bundle.deinit();
 
     var wasm_backend = try opa.WasmerBackend.init(allocator);
@@ -37,7 +34,6 @@ pub fn main() !void {
     const result = try instance.evaluate("example/allow", "{\"user\": \"admin\"}");
     defer allocator.free(result);
 
-    const stdout = std.fs.File.stdout();
-    try stdout.writeAll(result);
-    try stdout.writeAll("\n");
+    std.Io.File.stdout().writeStreamingAll(io, result) catch {};
+    std.Io.File.stdout().writeStreamingAll(io, "\n") catch {};
 }

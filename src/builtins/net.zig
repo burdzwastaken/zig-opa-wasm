@@ -81,7 +81,7 @@ pub fn cidrExpand(allocator: std.mem.Allocator, args: Args) BuiltinError!std.jso
 pub fn cidrMerge(allocator: std.mem.Allocator, args: Args) BuiltinError!std.json.Value {
     const arr = try args.getArray(0);
 
-    var networks = std.ArrayListUnmanaged(Network){};
+    var networks = std.ArrayListUnmanaged(Network).empty;
     defer networks.deinit(allocator);
 
     for (arr) |item| {
@@ -144,7 +144,7 @@ const Network = struct {
 };
 
 fn parseCidr(s: []const u8) ?Network {
-    const slash_pos = std.mem.indexOf(u8, s, "/") orelse return null;
+    const slash_pos = std.mem.find(u8, s, "/") orelse return null;
     const ip_part = s[0..slash_pos];
     const prefix_part = s[slash_pos + 1 ..];
 
@@ -157,7 +157,7 @@ fn parseCidr(s: []const u8) ?Network {
 }
 
 fn parseCidrOrIp(s: []const u8) ?Network {
-    if (std.mem.indexOf(u8, s, "/")) |_| {
+    if (std.mem.find(u8, s, "/")) |_| {
         return parseCidr(s);
     }
     const addr = parseIpv4(s) orelse return null;

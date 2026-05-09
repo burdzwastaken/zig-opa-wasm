@@ -118,10 +118,9 @@ pub const Instance = struct {
 
     /// Sets the base data document from a Zig value (serializes to JSON).
     pub fn setDataValue(self: *Self, value: anytype) !void {
-        var buf = std.ArrayList(u8).init(self.allocator);
-        defer buf.deinit();
-        try std.json.stringify(value, .{}, buf.writer());
-        try self.setData(buf.items);
+        const json_str = try std.json.Stringify.valueAlloc(self.allocator, value, .{});
+        defer self.allocator.free(json_str);
+        try self.setData(json_str);
     }
 
     /// Evaluates a policy entrypoint with the given JSON input.
@@ -239,7 +238,7 @@ pub const InstancePool = struct {
     policy: *const Policy,
     allocator: std.mem.Allocator,
     available: std.ArrayList(*Instance),
-    mutex: std.Thread.Mutex,
+    mutex: std.atomic.Mutex = .unlocked,
     max_size: usize,
 
     pub fn init(allocator: std.mem.Allocator, policy: *const Policy, max_size: usize) Self {
@@ -247,7 +246,7 @@ pub const InstancePool = struct {
             .policy = policy,
             .allocator = allocator,
             .available = .empty,
-            .mutex = .{},
+            .mutex = .unlocked,
             .max_size = max_size,
         };
     }
@@ -262,7 +261,7 @@ pub const InstancePool = struct {
 
     /// Acquire an instance from the pool or create a new one if empty.
     pub fn acquire(self: *Self) !*Instance {
-        self.mutex.lock();
+        while (!self.mutex.tryLock()) {}
         defer self.mutex.unlock();
 
         if (self.available.pop()) |inst| {
@@ -280,7 +279,7 @@ pub const InstancePool = struct {
             inst.memory_manager.setHeapPtr(ptr) catch {};
         }
 
-        self.mutex.lock();
+        while (!self.mutex.tryLock()) {}
         defer self.mutex.unlock();
 
         if (self.available.items.len < self.max_size) {
