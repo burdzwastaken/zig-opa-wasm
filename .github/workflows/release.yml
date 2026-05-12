@@ -37,7 +37,7 @@ jobs:
             ext: tar.gz
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
